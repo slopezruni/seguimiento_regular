@@ -10,6 +10,12 @@
 ## Conexion
 La conexion esta en `config/database.php`. En XAMPP normalmente se usa usuario `root` sin contrasena. Si tu configuracion es diferente, modifica `DB_USER` y `DB_PASS`.
 
+## Comando para cargar en git
+Ver cambios - git status
+Agregar cambios - git add .
+Crear commit - git commit -m "Agregada pantalla de productos"
+Subir a GitHub - git push
+
 ## Ajustes encontrados
 1. Agregar filtros de busqueda
 2. Revisar las fechas de las fichas

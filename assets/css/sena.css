@@ -1,0 +1,121 @@
+/* ==========================================================================
+   ESTILOS - SENA
+   ========================================================================== */
+:root {
+    --sena-verde: #39A900;
+    --sena-verde-dark: #2d8500;
+    --sena-gris-oscuro: #2C2C2C;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    background-color: #f4f7fb !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #334155;
+}
+
+#wrapper {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+    align-items: stretch;
+}
+
+#sidebar-wrapper {
+    width: 260px;
+    min-width: 260px;
+    background-color: var(--sena-gris-oscuro) !important;
+    border-right: 4px solid var(--sena-verde);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+.sidebar-link {
+    color: #cbd5e1;
+    text-decoration: none;
+    display: block;
+    padding: 12px 20px;
+    transition: 0.2s ease-in-out;
+    border-left: 4px solid transparent;
+}
+
+.sidebar-link:hover {
+    background-color: rgba(57, 169, 0, 0.15);
+    color: #ffffff;
+    border-left-color: var(--sena-verde);
+}
+
+.submenu-link {
+    padding-left: 40px;
+    font-size: 0.9em;
+}
+
+#page-content-wrapper {
+    width: 100%;
+    min-height: 100vh;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    background-color: #f4f7fb;
+}
+
+#page-content-wrapper > .container-fluid:last-child {
+    flex: 1;
+}
+
+.hero {
+    background: linear-gradient(135deg, #1d9700, #39A900);
+    color: white;
+    border-radius: 22px;
+    padding: 2rem;
+    box-shadow: 0 10px 25px rgba(57, 169, 0, 0.2);
+}
+
+.card {
+    border: 0;
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(20,40,80,.08);
+    height: auto !important;
+}
+
+.card-header.bg-dark {
+    background-color: var(--sena-gris-oscuro) !important;
+    border-bottom: 3px solid var(--sena-verde);
+}
+
+.stat {
+    font-size: 2rem;
+    font-weight: 800;
+}
+
+.form-label {
+    font-weight: 600;
+}
+
+.empty {
+    text-align: center;
+    color: #6c757d;
+    padding: 2rem;
+}
+
+.btn-success, .bg-success {
+    background-color: var(--sena-verde) !important;
+    border-color: var(--sena-verde) !important;
+}
+
+.btn-success:hover, .btn-success:focus {
+    background-color: var(--sena-verde-dark) !important;
+    border-color: var(--sena-verde-dark) !important;
+}
+
+.text-success {
+    color: var(--sena-verde) !important;
+}
+
+.border-success {
+    border-color: var(--sena-verde) !important;
+}

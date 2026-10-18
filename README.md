@@ -18,4 +18,4 @@ La conexion esta en `config/database.php`. En XAMPP normalmente se usa usuario `
 5. Solicitar el login al iniciar 
 6. Poder editar las fechas de la ficha de distribución
 7. Revisar los FIC, me sale que ya esta en la lista de fic pero no veo, y si estuviera tampoco me lo esta cancelando en el segumiento  
-
+8.

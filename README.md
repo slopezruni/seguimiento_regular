@@ -17,11 +17,4 @@ Crear commit - git commit -m "Agregada pantalla de productos"
 Subir a GitHub - git push
 
 ## Ajustes encontrados
-1. Agregar filtros de busqueda
-2. Revisar las fechas de las fichas
-3. PERMITIR MAYUS Y MINIS
-4. ajustar grafico de ejecucion 
-5. Solicitar el login al iniciar 
-6. Poder editar las fechas de la ficha de distribución
-7. Revisar los FIC, me sale que ya esta en la lista de fic pero no veo, y si estuviera tampoco me lo esta cancelando en el segumiento  
-8.
+1.

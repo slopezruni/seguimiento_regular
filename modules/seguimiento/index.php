@@ -46,7 +46,7 @@ if (!$mes_id) {
         <?php if (!$es_visualizador): ?>
         <div class="col-md-4">
             <div class="card shadow-sm border-success mb-4">
-                <div class="card-header bg-success text-white fw-bold">1. Crear Mes de Seguimiento</div>
+                <div class="card-header bg-success text-white fw-bold">Crear Mes de Seguimiento</div>
                 <div class="card-body">
                     <form method="POST">
                         <label class="fw-bold mb-1">Año y Mes</label>
@@ -96,13 +96,17 @@ if (!$mes_id) {
     $inscritos = (int)$stmtCount->fetchColumn();
     $cupos_disponibles = $cupos_totales - $inscritos;
 
+    // CAPTURAR PARÁMETROS DE BÚSQUEDA Y FILTRO
+    $busqueda = trim($_GET['q'] ?? '');
+    $filtro_estado = $_GET['estado'] ?? 'todos';
+
     // PREPARAR CONSULTA GLOBAL ANTIDUPLICADOS ENTRE CONVOCATORIAS
     $stmtCheckGlobal = $pdo->prepare("
         SELECT c.nombre 
         FROM aprendices_mes am
         JOIN meses_seguimiento ms ON am.mes_id = ms.id
         JOIN convocatorias c ON ms.convocatoria_id = c.id
-        WHERE am.documento = ? AND ms.convocatoria_id != ?
+        WHERE TRIM(am.documento) = TRIM(?) AND ms.convocatoria_id != ?
         LIMIT 1
     ");
 
@@ -168,7 +172,7 @@ if (!$mes_id) {
                     $lineas = file($archivo, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
                     $insertados = 0; $duplicados = 0; $bloqueados_otra_conv = 0; $limite_alcanzado = false; $lista_duplicados = [];
                     
-                    $stmtCheck = $pdo->prepare("SELECT id FROM aprendices_mes WHERE mes_id = ? AND documento = ?");
+                    $stmtCheck = $pdo->prepare("SELECT id FROM aprendices_mes WHERE mes_id = ? AND TRIM(documento) = TRIM(?)");
                     $stmtInsert = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
                     
                     foreach($lineas as $index => $linea) {
@@ -221,13 +225,36 @@ if (!$mes_id) {
         }
     }
 
-    $sqlList = "SELECT a.*, f.fecha_fin_lectiva, (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
+    // CONSULTA ULTRA-BLINDADA CON LIMPIEZA DE CARACTERES ESPECIALES Y ESPACIOS
+    $sqlList = "SELECT a.*, 
+                (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) LIMIT 1) AS fecha_fin_lectiva,
+                (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
                 FROM aprendices_mes a 
-                LEFT JOIN distribucion_fichas f ON a.ficha = f.numero_ficha 
-                LEFT JOIN base_fic fic ON a.documento = fic.documento 
-                WHERE a.mes_id = ? ORDER BY a.nombre ASC";
+                LEFT JOIN base_fic fic ON TRIM(a.documento) = TRIM(fic.documento) 
+                WHERE a.mes_id = ?";
+    
+    $params = [$mes_id];
+
+    // Aplicar filtro de búsqueda por nombre o documento
+    if (!empty($busqueda)) {
+        $sqlList .= " AND (a.nombre LIKE ? OR a.documento LIKE ? OR a.ficha LIKE ?)";
+        $param_busqueda = "%" . $busqueda . "%";
+        $params[] = $param_busqueda;
+        $params[] = $param_busqueda;
+        $params[] = $param_busqueda;
+    }
+
+    // Aplicar filtro por estado (Cumple / Cancelado)
+    if ($filtro_estado === 'cumple') {
+        $sqlList .= " AND a.estado_seguimiento = 'Cumple'";
+    } elseif ($filtro_estado === 'cancelados') {
+        $sqlList .= " AND a.estado_seguimiento = 'Cancelado'";
+    }
+
+    $sqlList .= " ORDER BY a.nombre ASC";
+
     $stmtList = $pdo->prepare($sqlList);
-    $stmtList->execute([$mes_id]);
+    $stmtList->execute($params);
     $aprendices = $stmtList->fetchAll(PDO::FETCH_ASSOC);
     ?>
 
@@ -278,10 +305,42 @@ if (!$mes_id) {
         </div>
     </div>
 
+    <!-- BARRA DE BÚSQUEDA Y FILTROS RÁPIDOS -->
+    <div class="card shadow-sm mb-3 bg-light border-0">
+        <div class="card-body py-2">
+            <form method="GET" class="row g-2 align-items-center">
+                <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
+                <input type="hidden" name="mes_id" value="<?= $mes_id ?>">
+                
+                <div class="col-md-6">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" name="q" class="form-control" placeholder="Buscar por Nombre, Documento o N° Ficha..." value="<?= htmlspecialchars($busqueda) ?>">
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <select name="estado" class="form-select form-select-sm">
+                        <option value="todos" <?= $filtro_estado === 'todos' ? 'selected' : '' ?>>Todos los estados</option>
+                        <option value="cumple" <?= $filtro_estado === 'cumple' ? 'selected' : '' ?>>Solo Cumplen</option>
+                        <option value="cancelados" <?= $filtro_estado === 'cancelados' ? 'selected' : '' ?>>Solo Cancelados</option>
+                    </select>
+                </div>
+
+                <div class="col-md-3 d-flex gap-1">
+                    <button type="submit" class="btn btn-sm btn-dark fw-bold w-100"><i class="bi bi-filter"></i> Filtrar</button>
+                    <?php if (!empty($busqueda) || $filtro_estado !== 'todos'): ?>
+                        <a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $mes_id ?>" class="btn btn-sm btn-outline-secondary" title="Limpiar filtros"><i class="bi bi-x-lg"></i></a>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- TABLA DE APRENDICES -->
     <div class="card shadow-sm border-0 shadow-lg">
         <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-            <span>Listado de Aprendices (<?= $inscritos ?> / <?= $cupos_totales ?>)</span>
+            <span>Listado de Aprendices Encontrados (<?= count($aprendices) ?> de <?= $inscritos ?>)</span>
             
             <?php if(!$es_visualizador): ?>
                 <?php if($cupos_disponibles > 0): ?>
@@ -364,7 +423,7 @@ if (!$mes_id) {
                     </thead>
                     <tbody>
                         <?php if(count($aprendices) === 0): ?>
-                            <tr><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted">Aún no hay aprendices en este mes.</td></tr>
+                            <tr><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted">No se encontraron aprendices con los filtros de búsqueda aplicados.</td></tr>
                         <?php endif; ?>
                         
                         <?php 

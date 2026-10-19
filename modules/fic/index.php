@@ -4,6 +4,9 @@ require_once '../../includes/header.php';
 
 $es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
 
+// CAPTURAR PARÁMETRO DE BÚSQUEDA
+$busqueda = trim($_GET['q'] ?? '');
+
 if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // A) CARGA MANUAL FIC
@@ -13,18 +16,30 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $nombre = strtoupper(trim($_POST['nombre']));
 
         if (!empty($documento) && !empty($nombre)) {
-            try {
-                $stmt = $pdo->prepare("INSERT INTO base_fic (tipo_documento, documento, nombre) VALUES (?, ?, ?)");
-                $stmt->execute([$tipo, $documento, $nombre]);
-                echo "<div class='alert alert-success mt-2 fw-bold'>Beneficiario FIC agregado correctamente.</div>";
-            } catch (PDOException $e) {
-                // Intento alternativo si la columna se llama tipo_doc
+            // Limpiar espacios en blanco del documento
+            $documento = preg_replace('/\s+/', '', $documento);
+
+            // Verificar explícitamente si ya existe en la base FIC
+            $stmtVal = $pdo->prepare("SELECT COUNT(*) FROM base_fic WHERE documento = ?");
+            $stmtVal->execute([$documento]);
+            if ($stmtVal->fetchColumn() > 0) {
+                echo "<div class='alert alert-danger mt-2 fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> Error: El documento {$documento} ya existe en la Base FIC.</div>";
+            } else {
                 try {
-                    $stmt = $pdo->prepare("INSERT INTO base_fic (tipo_doc, documento, nombre) VALUES (?, ?, ?)");
-                    $stmt->execute([$tipo, $documento, $nombre]);
-                    echo "<div class='alert alert-success mt-2 fw-bold'>Beneficiario FIC agregado correctamente.</div>";
-                } catch (PDOException $ex) {
-                    echo "<div class='alert alert-danger mt-2 fw-bold'>Error: El documento ya existe en la Base FIC.</div>";
+                    // Detectar automáticamente si la columna es tipo_documento o tipo_doc
+                    $cols = $pdo->query("SHOW COLUMNS FROM base_fic")->fetchAll(PDO::FETCH_COLUMN);
+                    $colTipo = in_array('tipo_documento', $cols) ? 'tipo_documento' : (in_array('tipo_doc', $cols) ? 'tipo_doc' : null);
+
+                    if ($colTipo) {
+                        $stmt = $pdo->prepare("INSERT INTO base_fic ({$colTipo}, documento, nombre) VALUES (?, ?, ?)");
+                        $stmt->execute([$tipo, $documento, $nombre]);
+                    } else {
+                        $stmt = $pdo->prepare("INSERT INTO base_fic (documento, nombre) VALUES (?, ?)");
+                        $stmt->execute([$documento, $nombre]);
+                    }
+                    echo "<div class='alert alert-success mt-2 fw-bold'><i class='bi bi-check-circle-fill'></i> Beneficiario FIC agregado correctamente.</div>";
+                } catch (PDOException $e) {
+                    echo "<div class='alert alert-danger mt-2 fw-bold'>Error de Base de Datos: " . $e->getMessage() . "</div>";
                 }
             }
         }
@@ -37,8 +52,16 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $lineas = file($archivo, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             $insertados = 0; $duplicados = 0; $lista_duplicados = [];
 
+            $cols = $pdo->query("SHOW COLUMNS FROM base_fic")->fetchAll(PDO::FETCH_COLUMN);
+            $colTipo = in_array('tipo_documento', $cols) ? 'tipo_documento' : (in_array('tipo_doc', $cols) ? 'tipo_doc' : null);
+
             $stmtCheck = $pdo->prepare("SELECT id FROM base_fic WHERE documento = ?");
-            $stmtInsert = $pdo->prepare("INSERT INTO base_fic (tipo_documento, documento, nombre) VALUES (?, ?, ?)");
+            
+            if ($colTipo) {
+                $stmtInsert = $pdo->prepare("INSERT INTO base_fic ({$colTipo}, documento, nombre) VALUES (?, ?, ?)");
+            } else {
+                $stmtInsert = $pdo->prepare("INSERT INTO base_fic (documento, nombre) VALUES (?, ?)");
+            }
 
             foreach ($lineas as $index => $linea) {
                 if ($index === 0) continue; // Saltar cabecera
@@ -46,27 +69,32 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $separador = strpos($linea, ';') !== false ? ';' : ',';
                 $datos = str_getcsv($linea, $separador);
 
-                if (count($datos) >= 3) {
-                    $tipo = strtoupper(trim(str_replace(['"', "'"], '', $datos[0])));
-                    $documento = trim(str_replace(['"', "'"], '', $datos[1]));
-                    $nombre = strtoupper(trim(str_replace(['"', "'"], '', $datos[2])));
+                if (count($datos) >= 2) {
+                    if (count($datos) >= 3) {
+                        $tipo = strtoupper(trim(str_replace(['"', "'"], '', $datos[0])));
+                        $documento = trim(str_replace(['"', "'"], '', $datos[1]));
+                        $nombre = strtoupper(trim(str_replace(['"', "'"], '', $datos[2])));
+                    } else {
+                        $tipo = 'CC';
+                        $documento = trim(str_replace(['"', "'"], '', $datos[0]));
+                        $nombre = strtoupper(trim(str_replace(['"', "'"], '', $datos[1])));
+                    }
+
+                    $documento = preg_replace('/\s+/', '', $documento);
 
                     if (!empty($documento) && is_numeric($documento)) {
                         $stmtCheck->execute([$documento]);
                         if ($stmtCheck->rowCount() == 0 && !in_array($documento, $lista_duplicados)) {
                             try {
-                                $stmtInsert->execute([$tipo, $documento, empty($nombre) ? 'SIN NOMBRE' : $nombre]);
+                                if ($colTipo) {
+                                    $stmtInsert->execute([$tipo, $documento, empty($nombre) ? 'SIN NOMBRE' : $nombre]);
+                                } else {
+                                    $stmtInsert->execute([$documento, empty($nombre) ? 'SIN NOMBRE' : $nombre]);
+                                }
                                 $insertados++;
                             } catch (PDOException $e) {
-                                // Fallback por si la columna es tipo_doc
-                                try {
-                                    $stmtAlt = $pdo->prepare("INSERT INTO base_fic (tipo_doc, documento, nombre) VALUES (?, ?, ?)");
-                                    $stmtAlt->execute([$tipo, $documento, empty($nombre) ? 'SIN NOMBRE' : $nombre]);
-                                    $insertados++;
-                                } catch (PDOException $ex) {
-                                    $duplicados++;
-                                    if (!in_array($documento, $lista_duplicados)) $lista_duplicados[] = $documento;
-                                }
+                                $duplicados++;
+                                if (!in_array($documento, $lista_duplicados)) $lista_duplicados[] = $documento;
                             }
                         } else {
                             $duplicados++;
@@ -89,8 +117,21 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Consultar todos los registros FIC
-$stmtFic = $pdo->query("SELECT * FROM base_fic ORDER BY nombre ASC");
+// CONSULTA DINÁMICA CON BÚSQUEDA
+$sqlFic = "SELECT * FROM base_fic";
+$paramsFic = [];
+
+if (!empty($busqueda)) {
+    $sqlFic .= " WHERE nombre LIKE ? OR documento LIKE ?";
+    $param_busqueda = "%" . $busqueda . "%";
+    $paramsFic[] = $param_busqueda;
+    $paramsFic[] = $param_busqueda;
+}
+
+$sqlFic .= " ORDER BY nombre ASC";
+
+$stmtFic = $pdo->prepare($sqlFic);
+$stmtFic->execute($paramsFic);
 $lista_fic = $stmtFic->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -145,12 +186,32 @@ $lista_fic = $stmtFic->fetchAll(PDO::FETCH_ASSOC);
 </div>
 <?php endif; ?>
 
+<!-- BARRA DE BÚSQUEDA RÁPIDA -->
+<div class="card shadow-sm mb-3 bg-light border-0">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-center">
+            <div class="col-md-10">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" class="form-control" placeholder="Buscar por Nombre o N° de Documento en la Base FIC..." value="<?= htmlspecialchars($busqueda) ?>">
+                </div>
+            </div>
+            <div class="col-md-2 d-flex gap-1">
+                <button type="submit" class="btn btn-sm btn-dark fw-bold w-100"><i class="bi bi-filter"></i> Buscar</button>
+                <?php if (!empty($busqueda)): ?>
+                    <a href="index.php" class="btn btn-sm btn-outline-secondary" title="Limpiar búsqueda"><i class="bi bi-x-lg"></i></a>
+                <?php endif; ?>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Listado FIC a Ancho Completo (col-12) -->
 <div class="row">
     <div class="col-12">
         <div class="card shadow-sm border-0 shadow-lg">
             <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span>Beneficiarios FIC Registrados</span>
+                <span>Beneficiarios FIC Registrados (Encontrados: <?= count($lista_fic) ?>)</span>
                 <span class="badge bg-danger fs-6 rounded-pill"><?= count($lista_fic) ?> Total</span>
             </div>
             <div class="card-body p-0">
@@ -167,11 +228,10 @@ $lista_fic = $stmtFic->fetchAll(PDO::FETCH_ASSOC);
                         </thead>
                         <tbody>
                             <?php if (count($lista_fic) === 0): ?>
-                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No hay registros en la Base FIC.</td></tr>
+                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No se encontraron registros en la Base FIC.</td></tr>
                             <?php endif; ?>
 
                             <?php $item = 1; foreach ($lista_fic as $fic): 
-                                // Soporte para ambos nombres de columna posibles en BD
                                 $tipo_doc_val = $fic['tipo_documento'] ?? ($fic['tipo_doc'] ?? 'CC');
                             ?>
                             <tr>

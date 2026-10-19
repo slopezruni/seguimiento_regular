@@ -4,6 +4,9 @@ require_once '../../includes/header.php';
 
 $es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
 
+// CAPTURAR PARÁMETRO DE BÚSQUEDA
+$busqueda = trim($_GET['q'] ?? '');
+
 $columna_programa = 'nombre_programa';
 try {
     $stmtCols = $pdo->query("SHOW COLUMNS FROM distribucion_fichas");
@@ -44,6 +47,24 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 echo "<div class='alert alert-success mt-2 fw-bold'>Ficha registrada correctamente.</div>";
             } catch (PDOException $e) {
                 echo "<div class='alert alert-danger mt-2 fw-bold'>Error: El número de ficha ya existe o hay un problema en la BD.</div>";
+            }
+        }
+    }
+
+    // A.2) EDITAR FICHA EXISTENTE
+    if (isset($_POST['editar_ficha'])) {
+        $id_ficha = $_POST['id_ficha'];
+        $numero = trim($_POST['numero_ficha']);
+        $programa = strtoupper(trim($_POST['nombre_programa']));
+        $fecha_fin = trim($_POST['fecha_fin_lectiva']);
+
+        if (!empty($id_ficha) && !empty($numero) && !empty($fecha_fin)) {
+            try {
+                $stmtUpdEdit = $pdo->prepare("UPDATE distribucion_fichas SET numero_ficha = ?, {$columna_programa} = ?, fecha_fin_lectiva = ? WHERE id = ?");
+                $stmtUpdEdit->execute([$numero, $programa, $fecha_fin, $id_ficha]);
+                echo "<div class='alert alert-success mt-2 fw-bold'>Ficha actualizada correctamente.</div>";
+            } catch (PDOException $e) {
+                echo "<div class='alert alert-danger mt-2 fw-bold'>Error al actualizar la ficha (posible número duplicado).</div>";
             }
         }
     }
@@ -103,8 +124,21 @@ if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Consultar todas las fichas
-$stmtFichas = $pdo->query("SELECT * FROM distribucion_fichas ORDER BY numero_ficha ASC");
+// CONSULTA DINÁMICA CON BÚSQUEDA
+$sqlFichas = "SELECT * FROM distribucion_fichas";
+$paramsFichas = [];
+
+if (!empty($busqueda)) {
+    $sqlFichas .= " WHERE numero_ficha LIKE ? OR {$columna_programa} LIKE ?";
+    $param_busqueda = "%" . $busqueda . "%";
+    $paramsFichas[] = $param_busqueda;
+    $paramsFichas[] = $param_busqueda;
+}
+
+$sqlFichas .= " ORDER BY numero_ficha ASC";
+
+$stmtFichas = $pdo->prepare($sqlFichas);
+$stmtFichas->execute($paramsFichas);
 $lista_fichas = $stmtFichas->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -159,11 +193,31 @@ $lista_fichas = $stmtFichas->fetchAll(PDO::FETCH_ASSOC);
 </div>
 <?php endif; ?>
 
+<!-- BARRA DE BÚSQUEDA RÁPIDA -->
+<div class="card shadow-sm mb-3 bg-light border-0">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-center">
+            <div class="col-md-10">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" class="form-control" placeholder="Buscar por Número de Ficha o Programa de Formación..." value="<?= htmlspecialchars($busqueda) ?>">
+                </div>
+            </div>
+            <div class="col-md-2 d-flex gap-1">
+                <button type="submit" class="btn btn-sm btn-dark fw-bold w-100"><i class="bi bi-filter"></i> Buscar</button>
+                <?php if (!empty($busqueda)): ?>
+                    <a href="index.php" class="btn btn-sm btn-outline-secondary" title="Limpiar búsqueda"><i class="bi bi-x-lg"></i></a>
+                <?php endif; ?>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <div class="card shadow-sm border-0 shadow-lg">
             <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span>Fichas Registradas en el Sistema</span>
+                <span>Fichas Registradas en el Sistema (Encontradas: <?= count($lista_fichas) ?>)</span>
                 <span class="badge bg-info text-dark fs-6 rounded-pill"><?= count($lista_fichas) ?> Total</span>
             </div>
             <div class="card-body p-0">
@@ -172,19 +226,18 @@ $lista_fichas = $stmtFichas->fetchAll(PDO::FETCH_ASSOC);
                         <thead class="table-light">
                             <tr>
                                 <th class="text-center" style="width: 5%;">#</th>
-                                <th style="width: 20%;">N° Ficha</th>
+                                <th style="width: 15%;">N° Ficha</th>
                                 <th>Programa de Formación</th>
                                 <th class="text-center" style="width: 20%;">Fecha Fin Lectiva</th>
-                                <?php if (!$es_visualizador): ?><th class="text-center" style="width: 15%;">Acción</th><?php endif; ?>
+                                <?php if (!$es_visualizador): ?><th class="text-center" style="width: 15%;">Acciones</th><?php endif; ?>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (count($lista_fichas) === 0): ?>
-                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No hay fichas registradas.</td></tr>
+                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No se encontraron fichas registradas.</td></tr>
                             <?php endif; ?>
 
                             <?php $item = 1; foreach ($lista_fichas as $f): 
-                                // Extraer el valor usando la columna detectada o cualquier alternativa existente
                                 $programa_val = $f[$columna_programa] ?? ($f['nombre_programa'] ?? ($f['programa'] ?? ($f['nombre'] ?? 'SIN PROGRAMA')));
                             ?>
                             <tr>
@@ -195,12 +248,58 @@ $lista_fichas = $stmtFichas->fetchAll(PDO::FETCH_ASSOC);
                                 
                                 <?php if (!$es_visualizador): ?>
                                 <td class="text-center">
-                                    <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar la ficha <?= $f['numero_ficha'] ?>?');">
-                                        <input type="hidden" name="id_eliminar" value="<?= $f['id'] ?>">
-                                        <button type="submit" name="eliminar_ficha_id" class="btn btn-sm btn-outline-danger border-0" title="Eliminar ficha">
-                                            <i class="bi bi-trash3-fill fs-6"></i>
+                                    <div class="d-flex justify-content-center gap-1">
+                                        <!-- Botón Editar que abre el Modal -->
+                                        <button type="button" class="btn btn-sm btn-outline-primary border-0" data-bs-toggle="modal" data-bs-target="#modalEditar_<?= $f['id'] ?>" title="Editar Ficha">
+                                            <i class="bi bi-pencil-square fs-6"></i>
                                         </button>
-                                    </form>
+
+                                        <!-- Botón Eliminar -->
+                                        <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar la ficha <?= $f['numero_ficha'] ?>?');">
+                                            <input type="hidden" name="id_eliminar" value="<?= $f['id'] ?>">
+                                            <button type="submit" name="eliminar_ficha_id" class="btn btn-sm btn-outline-danger border-0" title="Eliminar ficha">
+                                                <i class="bi bi-trash3-fill fs-6"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    <!-- MODAL DE EDICIÓN PARA CADA FICHA -->
+                                    <div class="modal fade text-start" id="modalEditar_<?= $f['id'] ?>" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <form method="POST">
+                                                    <div class="modal-header bg-info text-dark">
+                                                        <h5 class="modal-title fw-bold">Editar Ficha: <?= htmlspecialchars($f['numero_ficha']) ?></h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                    </div>
+                                                    <div class="modal-body">
+                                                        <input type="hidden" name="id_ficha" value="<?= $f['id'] ?>">
+                                                        
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-bold small">Número de Ficha</label>
+                                                            <input type="text" name="numero_ficha" class="form-control" value="<?= htmlspecialchars($f['numero_ficha']) ?>" required>
+                                                        </div>
+
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-bold small">Nombre del Programa</label>
+                                                            <input type="text" name="nombre_programa" class="form-control text-uppercase" value="<?= htmlspecialchars($programa_val) ?>" required>
+                                                        </div>
+
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-bold small">Fecha Fin Lectiva</label>
+                                                            <input type="date" name="fecha_fin_lectiva" class="form-control" value="<?= htmlspecialchars($f['fecha_fin_lectiva']) ?>" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                                                        <button type="submit" name="editar_ficha" class="btn btn-info btn-sm fw-bold">Guardar Cambios</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- FIN MODAL -->
+
                                 </td>
                                 <?php endif; ?>
                             </tr>

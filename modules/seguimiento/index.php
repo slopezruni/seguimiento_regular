@@ -270,6 +270,8 @@ if (!$mes_id) {
                     <i class="bi bi-file-earmark-excel-fill"></i> Descargar Reportes
                 </button>
                 <ul class="dropdown-menu shadow">
+                    <li><a class="dropdown-item fw-bold text-primary" href="exportar_sena.php?mes_id=<?= $mes_id ?>"><i class="bi bi-file-earmark-excel me-2"></i> Descargar Planilla Oficial SENA</a></li>
+                    <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item fw-bold" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=todos"><i class="bi bi-people-fill text-secondary me-2"></i> Reporte General (Todos)</a></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item fw-bold text-success" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=cumple"><i class="bi bi-check-circle-fill me-2"></i> Solo los que Cumplen</a></li>

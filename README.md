@@ -17,4 +17,4 @@ Crear commit - git commit -m "Agregada pantalla de productos"
 Subir a GitHub - git push
 
 ## Ajustes encontrados
-1.
+1. Hola

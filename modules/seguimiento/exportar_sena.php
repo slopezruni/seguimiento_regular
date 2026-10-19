@@ -70,6 +70,96 @@ function eliminarDirectorioTemporal($dir) {
     @rmdir($dir);
 }
 
+// =========================================================================
+// MOTOR NATIVO EN PHP PURO PARA CREAR ARCHIVOS .XLSX (ZIP) SIN EXTENSIONES
+// =========================================================================
+function crearXlsxNativo($dir_origen, $archivo_destino) {
+    $fp = fopen($archivo_destino, 'wb');
+    if (!$fp) return false;
+
+    $central_dir = '';
+    $offset = 0;
+    $num_entries = 0;
+
+    $dir_origen = rtrim(realpath($dir_origen), DIRECTORY_SEPARATOR);
+
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir_origen, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY
+    );
+
+    foreach ($files as $file) {
+        $filePath = $file->getRealPath();
+        // Excel exige barras inclinadas '/' dentro del contenedor ZIP
+        $relativePath = str_replace('\\', '/', substr($filePath, strlen($dir_origen) + 1));
+
+        $content = file_get_contents($filePath);
+        $unc_len = strlen($content);
+        $crc = crc32($content);
+        
+        // Comprimir con zlib nativo de PHP
+        $zdata = gzdeflate($content, 6);
+        $c_len = strlen($zdata);
+        $fn_len = strlen($relativePath);
+
+        // Cabecera de archivo local (Local File Header)
+        $local_header = "\x50\x4b\x03\x04"
+            . pack('v', 20)
+            . pack('v', 0)
+            . pack('v', 8)
+            . pack('v', 0)
+            . pack('v', 33)
+            . pack('V', $crc)
+            . pack('V', $c_len)
+            . pack('V', $unc_len)
+            . pack('v', $fn_len)
+            . pack('v', 0)
+            . $relativePath;
+
+        fwrite($fp, $local_header);
+        fwrite($fp, $zdata);
+
+        // Registro del Directorio Central (Central Directory Header)
+        $central_dir .= "\x50\x4b\x01\x02"
+            . pack('v', 20)
+            . pack('v', 20)
+            . pack('v', 0)
+            . pack('v', 8)
+            . pack('v', 0)
+            . pack('v', 33)
+            . pack('V', $crc)
+            . pack('V', $c_len)
+            . pack('V', $unc_len)
+            . pack('v', $fn_len)
+            . pack('v', 0)
+            . pack('v', 0)
+            . pack('v', 0)
+            . pack('v', 0)
+            . pack('V', 32)
+            . pack('V', $offset)
+            . $relativePath;
+
+        $offset += strlen($local_header) + $c_len;
+        $num_entries++;
+    }
+
+    // Fin del Directorio Central (End of Central Directory Record)
+    $eocd = "\x50\x4b\x05\x06"
+        . pack('v', 0)
+        . pack('v', 0)
+        . pack('v', $num_entries)
+        . pack('v', $num_entries)
+        . pack('V', strlen($central_dir))
+        . pack('V', $offset)
+        . pack('v', 0);
+
+    fwrite($fp, $central_dir);
+    fwrite($fp, $eocd);
+    fclose($fp);
+
+    return file_exists($archivo_destino) && filesize($archivo_destino) > 0;
+}
+
 // 4. Crear entorno temporal de trabajo
 $temp_id = uniqid('sena_excel_');
 $temp_dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $temp_id;
@@ -79,7 +169,7 @@ $temp_xlsx = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $temp_id . '_out.xlsx';
 mkdir($temp_dir, 0777, true);
 copy($plantilla_path, $temp_zip);
 
-// Extraer el contenido del Excel (usando ZipArchive, PharData o PowerShell nativo de Windows)
+// Extraer el contenido del Excel usando PharData o ZipArchive
 $extraido = false;
 
 if (class_exists('ZipArchive')) {
@@ -101,22 +191,13 @@ if (!$extraido && class_exists('PharData')) {
     }
 }
 
-if (!$extraido) {
-    // Fallback infalible en Windows con PowerShell
-    $cmd_extract = 'powershell -NoProfile -Command "Expand-Archive -Path ' . escapeshellarg($temp_zip) . ' -DestinationPath ' . escapeshellarg($temp_dir) . ' -Force"';
-    shell_exec($cmd_extract);
-    if (file_exists($temp_dir . '/xl/worksheets/sheet1.xml')) {
-        $extraido = true;
-    }
-}
-
 @unlink($temp_zip);
 
 $sheet1_path = $temp_dir . DIRECTORY_SEPARATOR . 'xl' . DIRECTORY_SEPARATOR . 'worksheets' . DIRECTORY_SEPARATOR . 'sheet1.xml';
 
 if (!$extraido || !file_exists($sheet1_path)) {
     eliminarDirectorioTemporal($temp_dir);
-    die("Error: No se pudo descomprimir la plantilla Excel. Para activarlo en XAMPP rápidamente: abre el Panel de Control de XAMPP, haz clic en 'Config' (en la fila de Apache) -> 'PHP (php.ini)', busca ';extension=zip', bórralo dejando 'extension=zip', guarda y reinicia Apache.");
+    die("Error: No se pudo descomprimir la plantilla Excel.");
 }
 
 // 5. Leer y modificar la hoja principal "Planilla de Pago" (sheet1.xml)
@@ -174,6 +255,19 @@ $setCellNumber = function($cellNode, $number) use ($dom, $ns) {
     $cellNode->appendChild($v);
 };
 
+// Función auxiliar para escribir una FÓRMULA con su resultado calculado actualizado
+$setCellFormula = function($cellNode, $formula, $calculatedValue) use ($dom, $ns) {
+    if (!$cellNode) return;
+    while ($cellNode->firstChild) {
+        $cellNode->removeChild($cellNode->firstChild);
+    }
+    $cellNode->removeAttribute('t');
+    $f = $dom->createElementNS($ns, 'f', $formula);
+    $v = $dom->createElementNS($ns, 'v', (string)$calculatedValue);
+    $cellNode->appendChild($f);
+    $cellNode->appendChild($v);
+};
+
 // Actualizar celdas J6 y J7
 $nodoJ6 = $xpath->query("//main:sheetData/main:row[@r='6']/main:c[@r='J6']")->item(0);
 if ($nodoJ6) $setCellText($nodoJ6, $fecha_elaboracion_texto);
@@ -181,33 +275,19 @@ if ($nodoJ6) $setCellText($nodoJ6, $fecha_elaboracion_texto);
 $nodoJ7 = $xpath->query("//main:sheetData/main:row[@r='7']/main:c[@r='J7']")->item(0);
 if ($nodoJ7) $setCellText($nodoJ7, $periodo_pago_texto);
 
-// 6. Guardar en memoria las columnas F a T que ya están en la plantilla (Filas 10 a 60)
-// asociadas al documento de cada aprendiz para conservar sus datos bancarios y CRP
-$datos_plantilla_por_doc = [];
-$columnas_extra = ['F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T'];
-
-for ($r = 10; $r <= 60; $r++) {
-    $rowNode = $xpath->query("//main:sheetData/main:row[@r='$r']")->item(0);
-    if (!$rowNode) continue;
-
-    $cDoc = $xpath->query("main:c[@r='C$r']/main:v", $rowNode)->item(0);
-    $doc_en_plantilla = $cDoc ? trim($cDoc->nodeValue) : '';
-
-    if ($doc_en_plantilla !== '') {
-        $clones_extra = [];
-        foreach ($columnas_extra as $col) {
-            $cellNode = $xpath->query("main:c[@r='{$col}{$r}']", $rowNode)->item(0);
-            if ($cellNode) {
-                $clones_extra[$col] = $cellNode->cloneNode(true);
-            }
-        }
-        $datos_plantilla_por_doc[$doc_en_plantilla] = $clones_extra;
-    }
-}
-
-// 7. Rellenar las filas de la plantilla (10 a 60) con los aprendices que CUMPLEN
+// 6. Rellenar las filas de la plantilla (10 a 60) con los aprendices que CUMPLEN
 $total_cumplen = count($aprendices);
 $max_filas_plantilla = 51; // De la fila 10 a la 60
+
+// Capturar valores base de la fila 10 de la plantilla para VR. (Q10) y NETO A PAGAR (S10)
+$nodoQ10 = $xpath->query("//main:sheetData/main:row[@r='10']/main:c[@r='Q10']/main:v")->item(0);
+$valor_vr_base = $nodoQ10 ? (float)trim($nodoQ10->nodeValue) : 875453;
+
+$nodoS10 = $xpath->query("//main:sheetData/main:row[@r='10']/main:c[@r='S10']/main:v")->item(0);
+$valor_neto_base = $nodoS10 ? (float)trim($nodoS10->nodeValue) : 875453;
+
+$suma_vr = 0;
+$suma_neto = 0;
 
 for ($i = 0; $i < $max_filas_plantilla; $i++) {
     $r = 10 + $i;
@@ -218,11 +298,28 @@ for ($i = 0; $i < $max_filas_plantilla; $i++) {
     $cellC = $xpath->query("main:c[@r='C$r']", $rowNode)->item(0);
     $cellD = $xpath->query("main:c[@r='D$r']", $rowNode)->item(0);
     $cellE = $xpath->query("main:c[@r='E$r']", $rowNode)->item(0);
+    $cellF = $xpath->query("main:c[@r='F$r']", $rowNode)->item(0);
+    $cellG = $xpath->query("main:c[@r='G$r']", $rowNode)->item(0);
+    $cellH = $xpath->query("main:c[@r='H$r']", $rowNode)->item(0);
+    $cellI = $xpath->query("main:c[@r='I$r']", $rowNode)->item(0);
+    $cellJ = $xpath->query("main:c[@r='J$r']", $rowNode)->item(0);
+    $cellK = $xpath->query("main:c[@r='K$r']", $rowNode)->item(0);
+    $cellL = $xpath->query("main:c[@r='L$r']", $rowNode)->item(0);
+    $cellM = $xpath->query("main:c[@r='M$r']", $rowNode)->item(0);
+    $cellN = $xpath->query("main:c[@r='N$r']", $rowNode)->item(0);
+    $cellO = $xpath->query("main:c[@r='O$r']", $rowNode)->item(0);
+    $cellP = $xpath->query("main:c[@r='P$r']", $rowNode)->item(0);
+    $cellQ = $xpath->query("main:c[@r='Q$r']", $rowNode)->item(0);
+    $cellR = $xpath->query("main:c[@r='R$r']", $rowNode)->item(0);
+    $cellS = $xpath->query("main:c[@r='S$r']", $rowNode)->item(0);
+    $cellT = $xpath->query("main:c[@r='T$r']", $rowNode)->item(0);
 
-    // Asegurar estilo normal uniforme (sin color rojo de cancelado)
+    // Asegurar estilo normal uniforme (sin color rojo de cancelado en C ni E)
     if ($cellC) $cellC->setAttribute('s', '9');
     if ($cellD) $cellD->setAttribute('s', '9');
     if ($cellE) $cellE->setAttribute('s', '9');
+    // Usar el mismo estilo numérico/moneda en R (Retenc.) para que el 0 se vea con formato moneda ($ -)
+    if ($cellR) $cellR->setAttribute('s', '20');
 
     if ($i < $total_cumplen) {
         $apr = $aprendices[$i];
@@ -244,70 +341,115 @@ for ($i = 0; $i < $max_filas_plantilla; $i++) {
         // E: Nombre Completo
         $setCellText($cellE, strtoupper(trim($apr['nombre'])));
 
-        // F a T: Si el aprendiz ya tenía datos bancarios/CRP en la plantilla, reubicarlos en su fila actual
-        if (isset($datos_plantilla_por_doc[$doc_limpio])) {
-            foreach ($columnas_extra as $col) {
-                $actualNode = $xpath->query("main:c[@r='{$col}{$r}']", $rowNode)->item(0);
-                if ($actualNode && isset($datos_plantilla_por_doc[$doc_limpio][$col])) {
-                    $nuevoNode = $datos_plantilla_por_doc[$doc_limpio][$col]->cloneNode(true);
-                    $nuevoNode->setAttribute('r', $col . $r);
-                    $rowNode->replaceChild($nuevoNode, $actualNode);
-                }
-            }
-        }
+        // F: RESOLUCION -> En blanco
+        $setCellText($cellF, '');
+
+        // G: CDP -> Se deja el que ya está en la plantilla (no se modifica $cellG)
+
+        // H: CRP -> En blanco
+        $setCellNumber($cellH, '');
+
+        // I: No° CUENTAS BANCARIAS -> En blanco
+        $setCellText($cellI, '');
+
+        // J: ENTIDAD BANCARIA -> En blanco
+        $setCellText($cellJ, '');
+
+        // K: TIPO DE CUENTA BANCARIA -> En blanco
+        $setCellText($cellK, '');
+
+        // L: VALOR DEL CRP -> En blanco
+        $setCellNumber($cellL, '');
+
+        // M: PAGOS ACUMULADOS -> En blanco
+        $setCellNumber($cellM, '');
+
+        // N: ADICIONES -> Todas en 0
+        $setCellNumber($cellN, 0);
+
+        // O: CUOTA -> En blanco
+        $setCellNumber($cellO, '');
+
+        // P: DIAS -> Todos con 30
+        $setCellNumber($cellP, 30);
+
+        // Q: VR. -> El valor que está en la plantilla para todos
+        $setCellNumber($cellQ, $valor_vr_base);
+
+        // R: RETENC. -> En 0
+        $setCellNumber($cellR, 0);
+
+        // S: NETO A PAGAR -> Como está en la plantilla
+        $setCellNumber($cellS, $valor_neto_base);
+
+        // T: SALDO POR PAGAR -> En blanco
+        $setCellNumber($cellT, '');
+
+        // Acumular sumas reales de los aprendices activos
+        $suma_vr += $valor_vr_base;
+        $suma_neto += $valor_neto_base;
+
     } else {
-        // Limpiar filas sobrantes dejando intactos los bordes y el formato
+        // Limpiar por completo las filas sobrantes (cuando hay menos de 51 aprendices que cumplen)
         $setCellNumber($cellB, '');
         $setCellNumber($cellC, '');
         $setCellText($cellD, '');
         $setCellText($cellE, '');
-
-        foreach ($columnas_extra as $col) {
-            $extraNode = $xpath->query("main:c[@r='{$col}{$r}']", $rowNode)->item(0);
-            if ($extraNode) {
-                $setCellNumber($extraNode, '');
-            }
-        }
+        $setCellText($cellF, '');
+        $setCellText($cellG, '');
+        $setCellNumber($cellH, '');
+        $setCellText($cellI, '');
+        $setCellText($cellJ, '');
+        $setCellText($cellK, '');
+        $setCellNumber($cellL, '');
+        $setCellNumber($cellM, '');
+        $setCellNumber($cellN, '');
+        $setCellNumber($cellO, '');
+        $setCellNumber($cellP, '');
+        $setCellNumber($cellQ, '');
+        $setCellNumber($cellR, '');
+        $setCellNumber($cellS, '');
+        $setCellNumber($cellT, '');
     }
+}
+
+// 7. ACTUALIZAR LAS SUMAS EN LA FILA 61 (TOTALES) CON LOS VALORES REALES ACTUALIZADOS
+$row61 = $xpath->query("//main:sheetData/main:row[@r='61']")->item(0);
+if ($row61) {
+    $cellL61 = $xpath->query("main:c[@r='L61']", $row61)->item(0); // Total Valor del CRP
+    $cellM61 = $xpath->query("main:c[@r='M61']", $row61)->item(0); // Total Pagos Acumulados
+    $cellN61 = $xpath->query("main:c[@r='N61']", $row61)->item(0); // Total Adiciones
+    $cellQ61 = $xpath->query("main:c[@r='Q61']", $row61)->item(0); // Total VR. (Pagos)
+    $cellR61 = $xpath->query("main:c[@r='R61']", $row61)->item(0); // Total Retenciones
+    $cellS61 = $xpath->query("main:c[@r='S61']", $row61)->item(0); // Total Neto a Pagar
+    $cellT61 = $xpath->query("main:c[@r='T61']", $row61)->item(0); // Total Saldo por Pagar
+
+    // Aplicar estilo de total en moneda con negrita (s=21) a N61, Q61 y R61 para que luzcan igual a S61
+    if ($cellN61) $cellN61->setAttribute('s', '21');
+    if ($cellQ61) $cellQ61->setAttribute('s', '21');
+    if ($cellR61) $cellR61->setAttribute('s', '21');
+
+    // Asignar fórmulas SUM(...) y sus resultados actualizados exactos
+    if ($cellL61) $setCellFormula($cellL61, 'SUM(L10:L60)', 0);
+    if ($cellM61) $setCellFormula($cellM61, 'SUM(M10:M60)', 0);
+    if ($cellN61) $setCellFormula($cellN61, 'SUM(N10:N60)', 0);
+    if ($cellQ61) $setCellFormula($cellQ61, 'SUM(Q10:Q60)', $suma_vr);
+    if ($cellR61) $setCellFormula($cellR61, 'SUM(R10:R60)', 0);
+    if ($cellS61) $setCellFormula($cellS61, 'SUM(S10:S60)', $suma_neto);
+    if ($cellT61) $setCellFormula($cellT61, 'SUM(T10:T60)', 0);
 }
 
 // Guardar el XML modificado
 file_put_contents($sheet1_path, $dom->saveXML());
 
-// Eliminar calcChain.xml para que Excel recalcule las fórmulas de suma (Fila 61) al abrirlo
+// Eliminar calcChain.xml para que Excel no tenga conflicto con las fórmulas actualizadas
 $calc_chain_path = $temp_dir . DIRECTORY_SEPARATOR . 'xl' . DIRECTORY_SEPARATOR . 'calcChain.xml';
 if (file_exists($calc_chain_path)) {
     @unlink($calc_chain_path);
 }
 
-// 8. Reempaquetar todo nuevamente como archivo .xlsx
-$comprimido = false;
-
-if (class_exists('ZipArchive')) {
-    $zipOut = new ZipArchive();
-    if ($zipOut->open($temp_xlsx, ZipArchive::CREATE | ZipArchive::OVERWRITE) === TRUE) {
-        $files = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($temp_dir, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::LEAVES_ONLY
-        );
-        foreach ($files as $file) {
-            $filePath = $file->getRealPath();
-            $relativePath = str_replace('\\', '/', substr($filePath, strlen($temp_dir) + 1));
-            $zipOut->addFile($filePath, $relativePath);
-        }
-        $zipOut->close();
-        $comprimido = true;
-    }
-}
-
-if (!$comprimido) {
-    // Usar compresor nativo de Windows (.NET ZipFile) vía PowerShell para preservar rutas internas exactas de Excel
-    $ps_script = "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory(" . escapeshellarg($temp_dir) . ", " . escapeshellarg($temp_xlsx) . ");";
-    shell_exec('powershell -NoProfile -Command "' . $ps_script . '"');
-    if (file_exists($temp_xlsx)) {
-        $comprimido = true;
-    }
-}
+// 8. Reempaquetar todo nuevamente como archivo .xlsx usando nuestro motor nativo en PHP puro
+$comprimido = crearXlsxNativo($temp_dir, $temp_xlsx);
 
 eliminarDirectorioTemporal($temp_dir);
 

@@ -443,7 +443,7 @@ if (!$mes_id) {
                             if (!empty($a['fecha_fin_lectiva'])) {
                                 $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
                                 $fecha_limite = clone $fin_lectiva;
-                                $fecha_limite->modify('+20 days');
+                                $fecha_limite->modify('+30 days');
                                 $fecha_limite->setTime(0,0,0);
                                 
                                 $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');

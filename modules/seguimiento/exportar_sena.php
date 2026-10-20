@@ -90,19 +90,16 @@ function crearXlsxNativo($dir_origen, $archivo_destino) {
 
     foreach ($files as $file) {
         $filePath = $file->getRealPath();
-        // Excel exige barras inclinadas '/' dentro del contenedor ZIP
         $relativePath = str_replace('\\', '/', substr($filePath, strlen($dir_origen) + 1));
 
         $content = file_get_contents($filePath);
         $unc_len = strlen($content);
         $crc = crc32($content);
         
-        // Comprimir con zlib nativo de PHP
         $zdata = gzdeflate($content, 6);
         $c_len = strlen($zdata);
         $fn_len = strlen($relativePath);
 
-        // Cabecera de archivo local (Local File Header)
         $local_header = "\x50\x4b\x03\x04"
             . pack('v', 20)
             . pack('v', 0)
@@ -119,7 +116,6 @@ function crearXlsxNativo($dir_origen, $archivo_destino) {
         fwrite($fp, $local_header);
         fwrite($fp, $zdata);
 
-        // Registro del Directorio Central (Central Directory Header)
         $central_dir .= "\x50\x4b\x01\x02"
             . pack('v', 20)
             . pack('v', 20)
@@ -143,7 +139,6 @@ function crearXlsxNativo($dir_origen, $archivo_destino) {
         $num_entries++;
     }
 
-    // Fin del Directorio Central (End of Central Directory Record)
     $eocd = "\x50\x4b\x05\x06"
         . pack('v', 0)
         . pack('v', 0)
@@ -169,9 +164,7 @@ $temp_xlsx = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $temp_id . '_out.xlsx';
 mkdir($temp_dir, 0777, true);
 copy($plantilla_path, $temp_zip);
 
-// Extraer el contenido del Excel usando PharData o ZipArchive
 $extraido = false;
-
 if (class_exists('ZipArchive')) {
     $zip = new ZipArchive();
     if ($zip->open($temp_zip) === TRUE) {
@@ -223,7 +216,6 @@ $mes_actual_es = $meses_es[date('m')] ?? strtoupper(date('F'));
 $fecha_elaboracion_texto = "FECHA DE ELABORACIÓN " . date('d') . " " . $mes_actual_es . " DEL " . date('Y');
 $periodo_pago_texto = "PERIODO DE PAGO: " . $nombre_mes_pago;
 
-// Función auxiliar para escribir texto directo en una celda conservando su estilo exacto (atributo s)
 $setCellText = function($cellNode, $text) use ($dom, $ns) {
     if (!$cellNode) return;
     while ($cellNode->firstChild) {
@@ -241,7 +233,6 @@ $setCellText = function($cellNode, $text) use ($dom, $ns) {
     $cellNode->appendChild($is);
 };
 
-// Función auxiliar para escribir un número en una celda conservando su estilo exacto (atributo s)
 $setCellNumber = function($cellNode, $number) use ($dom, $ns) {
     if (!$cellNode) return;
     while ($cellNode->firstChild) {
@@ -255,7 +246,6 @@ $setCellNumber = function($cellNode, $number) use ($dom, $ns) {
     $cellNode->appendChild($v);
 };
 
-// Función auxiliar para escribir una FÓRMULA con su resultado calculado actualizado
 $setCellFormula = function($cellNode, $formula, $calculatedValue) use ($dom, $ns) {
     if (!$cellNode) return;
     while ($cellNode->firstChild) {
@@ -275,122 +265,114 @@ if ($nodoJ6) $setCellText($nodoJ6, $fecha_elaboracion_texto);
 $nodoJ7 = $xpath->query("//main:sheetData/main:row[@r='7']/main:c[@r='J7']")->item(0);
 if ($nodoJ7) $setCellText($nodoJ7, $periodo_pago_texto);
 
-// 6. Rellenar las filas de la plantilla (10 a 60) con los aprendices que CUMPLEN
+// =========================================================================
+// 6. ADAPTACIÓN DINÁMICA DE FILAS (AGREGAR O BORRAR SEGÚN CANTIDAD REAL)
+// =========================================================================
+$sheetData = $xpath->query("//main:sheetData")->item(0);
 $total_cumplen = count($aprendices);
-$max_filas_plantilla = 51; // De la fila 10 a la 60
+$cantidad_filas_datos = max(1, $total_cumplen); // Al menos 1 fila para no romper las fórmulas SUM
 
-// Capturar valores base de la fila 10 de la plantilla para VR. (Q10) y NETO A PAGAR (S10)
+// Capturar valores base de la fila 10 para VR. (Q10) y NETO A PAGAR (S10)
 $nodoQ10 = $xpath->query("//main:sheetData/main:row[@r='10']/main:c[@r='Q10']/main:v")->item(0);
 $valor_vr_base = $nodoQ10 ? (float)trim($nodoQ10->nodeValue) : 875453;
 
 $nodoS10 = $xpath->query("//main:sheetData/main:row[@r='10']/main:c[@r='S10']/main:v")->item(0);
 $valor_neto_base = $nodoS10 ? (float)trim($nodoS10->nodeValue) : 875453;
 
+// Guardar un clon limpio de la fila 10 como molde exacto para todas las filas de aprendices
+$row10_molde = $xpath->query("//main:sheetData/main:row[@r='10']")->item(0)->cloneNode(true);
+
+// Referencia a la fila 61 original (Totales) para insertar las nuevas filas de aprendices ANTES de ella
+$row61_original = $xpath->query("//main:sheetData/main:row[@r='61']")->item(0);
+
+// Eliminar las 51 filas originales de aprendices (10 a 60)
+for ($r = 10; $r <= 60; $r++) {
+    $rNode = $xpath->query("//main:sheetData/main:row[@r='$r']")->item(0);
+    if ($rNode) {
+        $sheetData->removeChild($rNode);
+    }
+}
+
 $suma_vr = 0;
 $suma_neto = 0;
 
-for ($i = 0; $i < $max_filas_plantilla; $i++) {
+// Insertar las filas exactas de los aprendices EN ORDEN ESTRICTO antes de la fila de totales (row61_original)
+for ($i = 0; $i < $cantidad_filas_datos; $i++) {
     $r = 10 + $i;
-    $rowNode = $xpath->query("//main:sheetData/main:row[@r='$r']")->item(0);
-    if (!$rowNode) continue;
+    $nuevoRow = $row10_molde->cloneNode(true);
+    $nuevoRow->setAttribute('r', (string)$r);
 
-    $cellB = $xpath->query("main:c[@r='B$r']", $rowNode)->item(0);
-    $cellC = $xpath->query("main:c[@r='C$r']", $rowNode)->item(0);
-    $cellD = $xpath->query("main:c[@r='D$r']", $rowNode)->item(0);
-    $cellE = $xpath->query("main:c[@r='E$r']", $rowNode)->item(0);
-    $cellF = $xpath->query("main:c[@r='F$r']", $rowNode)->item(0);
-    $cellG = $xpath->query("main:c[@r='G$r']", $rowNode)->item(0);
-    $cellH = $xpath->query("main:c[@r='H$r']", $rowNode)->item(0);
-    $cellI = $xpath->query("main:c[@r='I$r']", $rowNode)->item(0);
-    $cellJ = $xpath->query("main:c[@r='J$r']", $rowNode)->item(0);
-    $cellK = $xpath->query("main:c[@r='K$r']", $rowNode)->item(0);
-    $cellL = $xpath->query("main:c[@r='L$r']", $rowNode)->item(0);
-    $cellM = $xpath->query("main:c[@r='M$r']", $rowNode)->item(0);
-    $cellN = $xpath->query("main:c[@r='N$r']", $rowNode)->item(0);
-    $cellO = $xpath->query("main:c[@r='O$r']", $rowNode)->item(0);
-    $cellP = $xpath->query("main:c[@r='P$r']", $rowNode)->item(0);
-    $cellQ = $xpath->query("main:c[@r='Q$r']", $rowNode)->item(0);
-    $cellR = $xpath->query("main:c[@r='R$r']", $rowNode)->item(0);
-    $cellS = $xpath->query("main:c[@r='S$r']", $rowNode)->item(0);
-    $cellT = $xpath->query("main:c[@r='T$r']", $rowNode)->item(0);
+    // Actualizar las coordenadas de cada celda (B10 -> B$r, C10 -> C$r, etc.)
+    foreach ($nuevoRow->childNodes as $cell) {
+        if ($cell->nodeType === XML_ELEMENT_NODE && $cell->localName === 'c') {
+            $oldR = $cell->getAttribute('r');
+            $colLetter = preg_replace('/[0-9]+/', '', $oldR);
+            $cell->setAttribute('r', $colLetter . $r);
+        }
+    }
 
-    // Asegurar estilo normal uniforme (sin color rojo de cancelado en C ni E)
+    // Insertar justo antes de la fila de totales para mantener el orden ascendente estricto que exige Excel
+    $sheetData->insertBefore($nuevoRow, $row61_original);
+
+    $cellB = $xpath->query("main:c[@r='B$r']", $nuevoRow)->item(0);
+    $cellC = $xpath->query("main:c[@r='C$r']", $nuevoRow)->item(0);
+    $cellD = $xpath->query("main:c[@r='D$r']", $nuevoRow)->item(0);
+    $cellE = $xpath->query("main:c[@r='E$r']", $nuevoRow)->item(0);
+    $cellF = $xpath->query("main:c[@r='F$r']", $nuevoRow)->item(0);
+    $cellG = $xpath->query("main:c[@r='G$r']", $nuevoRow)->item(0);
+    $cellH = $xpath->query("main:c[@r='H$r']", $nuevoRow)->item(0);
+    $cellI = $xpath->query("main:c[@r='I$r']", $nuevoRow)->item(0);
+    $cellJ = $xpath->query("main:c[@r='J$r']", $nuevoRow)->item(0);
+    $cellK = $xpath->query("main:c[@r='K$r']", $nuevoRow)->item(0);
+    $cellL = $xpath->query("main:c[@r='L$r']", $nuevoRow)->item(0);
+    $cellM = $xpath->query("main:c[@r='M$r']", $nuevoRow)->item(0);
+    $cellN = $xpath->query("main:c[@r='N$r']", $nuevoRow)->item(0);
+    $cellO = $xpath->query("main:c[@r='O$r']", $nuevoRow)->item(0);
+    $cellP = $xpath->query("main:c[@r='P$r']", $nuevoRow)->item(0);
+    $cellQ = $xpath->query("main:c[@r='Q$r']", $nuevoRow)->item(0);
+    $cellR = $xpath->query("main:c[@r='R$r']", $nuevoRow)->item(0);
+    $cellS = $xpath->query("main:c[@r='S$r']", $nuevoRow)->item(0);
+    $cellT = $xpath->query("main:c[@r='T$r']", $nuevoRow)->item(0);
+
+    // Estilos limpios uniformes
     if ($cellC) $cellC->setAttribute('s', '9');
     if ($cellD) $cellD->setAttribute('s', '9');
     if ($cellE) $cellE->setAttribute('s', '9');
-    // Usar el mismo estilo numérico/moneda en R (Retenc.) para que el 0 se vea con formato moneda ($ -)
     if ($cellR) $cellR->setAttribute('s', '20');
 
     if ($i < $total_cumplen) {
         $apr = $aprendices[$i];
         $doc_limpio = trim($apr['documento']);
 
-        // B: Consecutivo (1, 2, 3...)
         $setCellNumber($cellB, $i + 1);
-
-        // C: Documento
         if (is_numeric($doc_limpio)) {
             $setCellNumber($cellC, $doc_limpio);
         } else {
             $setCellText($cellC, $doc_limpio);
         }
-
-        // D: Tipo de Documento
         $setCellText($cellD, strtoupper(trim($apr['tipo_documento'])));
-
-        // E: Nombre Completo
         $setCellText($cellE, strtoupper(trim($apr['nombre'])));
 
-        // F: RESOLUCION -> En blanco
         $setCellText($cellF, '');
-
-        // G: CDP -> Se deja el que ya está en la plantilla (no se modifica $cellG)
-
-        // H: CRP -> En blanco
+        // G conserva el CDP que viene en el molde de la fila 10
         $setCellNumber($cellH, '');
-
-        // I: No° CUENTAS BANCARIAS -> En blanco
         $setCellText($cellI, '');
-
-        // J: ENTIDAD BANCARIA -> En blanco
         $setCellText($cellJ, '');
-
-        // K: TIPO DE CUENTA BANCARIA -> En blanco
         $setCellText($cellK, '');
-
-        // L: VALOR DEL CRP -> En blanco
         $setCellNumber($cellL, '');
-
-        // M: PAGOS ACUMULADOS -> En blanco
         $setCellNumber($cellM, '');
-
-        // N: ADICIONES -> Todas en 0
         $setCellNumber($cellN, 0);
-
-        // O: CUOTA -> En blanco
         $setCellNumber($cellO, '');
-
-        // P: DIAS -> Todos con 30
         $setCellNumber($cellP, 30);
-
-        // Q: VR. -> El valor que está en la plantilla para todos
         $setCellNumber($cellQ, $valor_vr_base);
-
-        // R: RETENC. -> En 0
         $setCellNumber($cellR, 0);
-
-        // S: NETO A PAGAR -> Como está en la plantilla
         $setCellNumber($cellS, $valor_neto_base);
-
-        // T: SALDO POR PAGAR -> En blanco
         $setCellNumber($cellT, '');
 
-        // Acumular sumas reales de los aprendices activos
         $suma_vr += $valor_vr_base;
         $suma_neto += $valor_neto_base;
-
     } else {
-        // Limpiar por completo las filas sobrantes (cuando hay menos de 51 aprendices que cumplen)
+        // En caso de que haya 0 aprendices que cumplen, dejamos 1 fila vacía limpia
         $setCellNumber($cellB, '');
         $setCellNumber($cellC, '');
         $setCellText($cellD, '');
@@ -403,52 +385,142 @@ for ($i = 0; $i < $max_filas_plantilla; $i++) {
         $setCellText($cellK, '');
         $setCellNumber($cellL, '');
         $setCellNumber($cellM, '');
-        $setCellNumber($cellN, '');
+        $setCellNumber($cellN, 0);
         $setCellNumber($cellO, '');
-        $setCellNumber($cellP, '');
-        $setCellNumber($cellQ, '');
-        $setCellNumber($cellR, '');
-        $setCellNumber($cellS, '');
+        $setCellNumber($cellP, 0);
+        $setCellNumber($cellQ, 0);
+        $setCellNumber($cellR, 0);
+        $setCellNumber($cellS, 0);
         $setCellNumber($cellT, '');
     }
 }
 
-// 7. ACTUALIZAR LAS SUMAS EN LA FILA 61 (TOTALES) CON LOS VALORES REALES ACTUALIZADOS
-$row61 = $xpath->query("//main:sheetData/main:row[@r='61']")->item(0);
-if ($row61) {
-    $cellL61 = $xpath->query("main:c[@r='L61']", $row61)->item(0); // Total Valor del CRP
-    $cellM61 = $xpath->query("main:c[@r='M61']", $row61)->item(0); // Total Pagos Acumulados
-    $cellN61 = $xpath->query("main:c[@r='N61']", $row61)->item(0); // Total Adiciones
-    $cellQ61 = $xpath->query("main:c[@r='Q61']", $row61)->item(0); // Total VR. (Pagos)
-    $cellR61 = $xpath->query("main:c[@r='R61']", $row61)->item(0); // Total Retenciones
-    $cellS61 = $xpath->query("main:c[@r='S61']", $row61)->item(0); // Total Neto a Pagar
-    $cellT61 = $xpath->query("main:c[@r='T61']", $row61)->item(0); // Total Saldo por Pagar
+// =========================================================================
+// 7. DESPLAZAR FILA DE TOTALES (61) Y FIRMAS (62 a 70) + ACTUALIZAR SUMAS
+// =========================================================================
+// En la plantilla original había 51 filas (10 a 60) y los totales estaban en la 61.
+$fila_totales_nueva = 10 + $cantidad_filas_datos;
+$desplazamiento = $fila_totales_nueva - 61; // Negativo si hay menos de 51, positivo si hay más de 51
+$ultima_fila_datos = $fila_totales_nueva - 1;
 
-    // Aplicar estilo de total en moneda con negrita (s=21) a N61, Q61 y R61 para que luzcan igual a S61
-    if ($cellN61) $cellN61->setAttribute('s', '21');
-    if ($cellQ61) $cellQ61->setAttribute('s', '21');
-    if ($cellR61) $cellR61->setAttribute('s', '21');
-
-    // Asignar fórmulas SUM(...) y sus resultados actualizados exactos
-    if ($cellL61) $setCellFormula($cellL61, 'SUM(L10:L60)', 0);
-    if ($cellM61) $setCellFormula($cellM61, 'SUM(M10:M60)', 0);
-    if ($cellN61) $setCellFormula($cellN61, 'SUM(N10:N60)', 0);
-    if ($cellQ61) $setCellFormula($cellQ61, 'SUM(Q10:Q60)', $suma_vr);
-    if ($cellR61) $setCellFormula($cellR61, 'SUM(R10:R60)', 0);
-    if ($cellS61) $setCellFormula($cellS61, 'SUM(S10:S60)', $suma_neto);
-    if ($cellT61) $setCellFormula($cellT61, 'SUM(T10:T60)', 0);
+// Recolectar las filas finales originales (61 a 70) primero para no pisar índices al renombrarlas
+$filas_finales = [];
+for ($r_orig = 61; $r_orig <= 70; $r_orig++) {
+    $fNode = $xpath->query("//main:sheetData/main:row[@r='$r_orig']")->item(0);
+    if ($fNode) {
+        $filas_finales[$r_orig] = $fNode;
+    }
 }
 
-// Guardar el XML modificado
+foreach ($filas_finales as $r_orig => $fNode) {
+    $r_nuevo = $r_orig + $desplazamiento;
+    $fNode->setAttribute('r', (string)$r_nuevo);
+    foreach ($fNode->childNodes as $cell) {
+        if ($cell->nodeType === XML_ELEMENT_NODE && $cell->localName === 'c') {
+            $oldR = $cell->getAttribute('r');
+            $colLetter = preg_replace('/[0-9]+/', '', $oldR);
+            $cell->setAttribute('r', $colLetter . $r_nuevo);
+        }
+    }
+}
+
+// Actualizar las fórmulas y valores de suma en la fila de Totales ($row61_original ahora está en $fila_totales_nueva)
+if ($row61_original) {
+    $tRow = $fila_totales_nueva;
+    $cellL = $xpath->query("main:c[@r='L$tRow']", $row61_original)->item(0);
+    $cellM = $xpath->query("main:c[@r='M$tRow']", $row61_original)->item(0);
+    $cellN = $xpath->query("main:c[@r='N$tRow']", $row61_original)->item(0);
+    $cellQ = $xpath->query("main:c[@r='Q$tRow']", $row61_original)->item(0);
+    $cellR = $xpath->query("main:c[@r='R$tRow']", $row61_original)->item(0);
+    $cellS = $xpath->query("main:c[@r='S$tRow']", $row61_original)->item(0);
+    $cellT = $xpath->query("main:c[@r='T$tRow']", $row61_original)->item(0);
+
+    if ($cellN) $cellN->setAttribute('s', '21');
+    if ($cellQ) $cellQ->setAttribute('s', '21');
+    if ($cellR) $cellR->setAttribute('s', '21');
+
+    if ($cellL) $setCellFormula($cellL, "SUM(L10:L{$ultima_fila_datos})", 0);
+    if ($cellM) $setCellFormula($cellM, "SUM(M10:M{$ultima_fila_datos})", 0);
+    if ($cellN) $setCellFormula($cellN, "SUM(N10:N{$ultima_fila_datos})", 0);
+    if ($cellQ) $setCellFormula($cellQ, "SUM(Q10:Q{$ultima_fila_datos})", $suma_vr);
+    if ($cellR) $setCellFormula($cellR, "SUM(R10:R{$ultima_fila_datos})", 0);
+    if ($cellS) $setCellFormula($cellS, "SUM(S10:S{$ultima_fila_datos})", $suma_neto);
+    if ($cellT) $setCellFormula($cellT, "SUM(T10:T{$ultima_fila_datos})", 0);
+}
+
+// =========================================================================
+// 8. ACTUALIZAR CELDAS COMBINADAS (<mergeCells>), DIMENSIONES E IMÁGENES
+// =========================================================================
+if ($desplazamiento !== 0) {
+    // A) Actualizar <mergeCells> que estén en las filas >= 61 (Totales y Firmas)
+    $mergeNodes = $xpath->query("//main:mergeCells/main:mergeCell");
+    foreach ($mergeNodes as $mc) {
+        $ref = $mc->getAttribute('ref');
+        if (preg_match('/^([A-Z]+)([0-9]+):([A-Z]+)([0-9]+)$/', $ref, $m)) {
+            $col1 = $m[1]; $row1 = (int)$m[2];
+            $col2 = $m[3]; $row2 = (int)$m[4];
+            if ($row1 >= 61) {
+                $nr1 = $row1 + $desplazamiento;
+                $nr2 = $row2 + $desplazamiento;
+                $mc->setAttribute('ref', "{$col1}{$nr1}:{$col2}{$nr2}");
+            }
+        }
+    }
+
+    // B) Actualizar etiqueta <dimension ref="B1:T70"/>
+    $dimNode = $xpath->query("//main:dimension")->item(0);
+    if ($dimNode) {
+        $nueva_max_fila = 70 + $desplazamiento;
+        $dimNode->setAttribute('ref', "B1:T{$nueva_max_fila}");
+    }
+
+    // C) Desplazar los anclajes de las imágenes de firmas en xl/drawings/drawing1.xml (son 0-indexed, fila >= 60)
+    $drawing_path = $temp_dir . DIRECTORY_SEPARATOR . 'xl' . DIRECTORY_SEPARATOR . 'drawings' . DIRECTORY_SEPARATOR . 'drawing1.xml';
+    if (file_exists($drawing_path)) {
+        $draw_xml = file_get_contents($drawing_path);
+        $domDraw = new DOMDocument();
+        $domDraw->preserveWhiteSpace = false;
+        $domDraw->loadXML($draw_xml);
+        $xpathDraw = new DOMXPath($domDraw);
+        $xpathDraw->registerNamespace('xdr', 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing');
+
+        $rowAnchors = $xpathDraw->query("//xdr:from/xdr:row | //xdr:to/xdr:row");
+        foreach ($rowAnchors as $rAnchor) {
+            $rVal = (int)trim($rAnchor->nodeValue);
+            // El logo del SENA está en la fila 0..6; las firmas están en la fila 61..66 (0-indexed)
+            if ($rVal >= 60) {
+                $rAnchor->nodeValue = (string)($rVal + $desplazamiento);
+            }
+        }
+        file_put_contents($drawing_path, $domDraw->saveXML());
+    }
+
+    // D) Actualizar el rango del filtro en xl/workbook.xml si existe
+    $wb_path = $temp_dir . DIRECTORY_SEPARATOR . 'xl' . DIRECTORY_SEPARATOR . 'workbook.xml';
+    if (file_exists($wb_path)) {
+        $wb_content = file_get_contents($wb_path);
+        $nueva_fila_68 = 68 + $desplazamiento;
+        $wb_content = str_replace("'Planilla de Pago'!\$B\$6:\$T\$68", "'Planilla de Pago'!\$B\$6:\$T\${$nueva_fila_68}", $wb_content);
+        file_put_contents($wb_path, $wb_content);
+    }
+}
+
+// Eliminar bloques de conditionalFormatting antiguos para evitar referencias cruzadas al cambiar cantidad de filas
+$cfNodes = $xpath->query("//main:conditionalFormatting");
+foreach ($cfNodes as $cf) {
+    $cf->parentNode->removeChild($cf);
+}
+
+// Guardar el XML modificado de la hoja principal
 file_put_contents($sheet1_path, $dom->saveXML());
 
-// Eliminar calcChain.xml para que Excel no tenga conflicto con las fórmulas actualizadas
+// Eliminar calcChain.xml para que Excel recalcule limpiamente al abrir
 $calc_chain_path = $temp_dir . DIRECTORY_SEPARATOR . 'xl' . DIRECTORY_SEPARATOR . 'calcChain.xml';
 if (file_exists($calc_chain_path)) {
     @unlink($calc_chain_path);
 }
 
-// 8. Reempaquetar todo nuevamente como archivo .xlsx usando nuestro motor nativo en PHP puro
+// 9. Reempaquetar como archivo .xlsx con nuestro motor nativo
 $comprimido = crearXlsxNativo($temp_dir, $temp_xlsx);
 
 eliminarDirectorioTemporal($temp_dir);
@@ -457,7 +529,7 @@ if (!$comprimido || !file_exists($temp_xlsx)) {
     die("Error al generar el contenedor final de Excel.");
 }
 
-// 9. Enviar el archivo Excel exacto para descarga
+// 10. Enviar archivo para descarga
 $nombre_descarga = "PLANILLA_DE_PAGO_REGULAR_" . str_replace(' ', '_', strtoupper($datos_mes['mes'])) . ".xlsx";
 
 if (ob_get_length()) {

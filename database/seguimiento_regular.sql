@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1:3307
--- Tiempo de generación: 19-10-2026 a las 06:03:35
+-- Tiempo de generación: 20-10-2026 a las 03:41:42
 -- Versión del servidor: 10.4.32-MariaDB
 -- Versión de PHP: 8.2.12
 
@@ -49,7 +49,7 @@ INSERT INTO `aprendices_mes` (`id`, `mes_id`, `tipo_documento`, `documento`, `no
 (1, 1, 'CC', '1061531645', 'ADRIAN FELIPE USSA MOSQUERA', '3173455', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (2, 1, 'CC', '1147955081', 'ALEJANDRA PARRA ROJAS', '3228049', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (3, 1, 'TI', '1114623302', 'ANDRES CAMILO CRIOLLO DELGADO', '3176391', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
-(4, 1, 'CC', '1073232845', 'ANGELA PATRICIA ABRIL CEPEDA', '3118465', 'Cancelado', 'NO', 'NO', 'NO', 'NO'),
+(4, 1, 'CC', '1073232845', 'ANGELA PATRICIA ABRIL CEPEDA', '3118465', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (5, 1, 'CC', '1111667242', 'BRAYAN ESTIVEN GAVILANES DIAZ', ' 3316045', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (6, 1, 'TI', '1059240504', 'CARLOS ALBERTO SANCHEZ DAZA', '3173467', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (7, 1, 'CC', '1006211024', 'CRISTIAN ARCOS BENAVIDES', '3293958', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
@@ -147,7 +147,8 @@ INSERT INTO `aprendices_mes` (`id`, `mes_id`, `tipo_documento`, `documento`, `no
 (99, 2, 'PPT', '6119888', 'YHONALYS ALEXANDRA OCHOA COLAN', '3176391', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (100, 2, 'CC', '1063809528', 'YONIER NICOLAS SOLARTE NARVAEZ', '3173467', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
 (101, 2, 'TI', '1059240939', 'YOSTIN FELIPE RIVERA VALENCIA', '3173467', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
-(102, 2, 'CC', '1096618613', 'YURY AMADO NOVOA', '3236559', 'Cumple', 'NO', 'NO', 'NO', 'NO');
+(102, 2, 'CC', '1096618613', 'YURY AMADO NOVOA', '3236559', 'Cumple', 'NO', 'NO', 'NO', 'NO'),
+(105, 3, 'CC', '1192791890', 'SANTIAGO LOPEZ RAMIREZ', '3234687', 'Cumple', 'NO', 'NO', 'NO', 'NO');
 
 -- --------------------------------------------------------
 
@@ -248,6 +249,85 @@ CREATE TABLE `convocatorias` (
 INSERT INTO `convocatorias` (`id`, `nombre`, `periodo`, `cupos`, `presupuesto`, `created_at`) VALUES
 (1, 'REGULAR CONVOCATORIA 1', '2026', 51, 300000000.00, '2026-10-17 02:44:13'),
 (2, 'REGULAR CONVOCATORIA 2', '2026', 103, 500000000.00, '2026-10-17 02:44:37');
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `datos_bancarios_convocatoria`
+--
+
+CREATE TABLE `datos_bancarios_convocatoria` (
+  `id` int(11) NOT NULL,
+  `convocatoria_id` int(11) NOT NULL,
+  `tipo_documento` varchar(10) DEFAULT NULL,
+  `documento` varchar(20) NOT NULL,
+  `nombre` varchar(150) DEFAULT NULL,
+  `crp` varchar(50) DEFAULT NULL,
+  `no_cuentas_bancarias` varchar(50) DEFAULT NULL,
+  `entidad_bancaria` varchar(100) DEFAULT NULL,
+  `tipo_cuenta_bancaria` varchar(50) DEFAULT NULL,
+  `valor_crp` decimal(12,2) DEFAULT 0.00,
+  `pagos_acumulados` decimal(12,2) DEFAULT 0.00,
+  `cuota` varchar(20) DEFAULT NULL,
+  `saldo_por_pagar` decimal(12,2) DEFAULT 0.00
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `datos_bancarios_convocatoria`
+--
+
+INSERT INTO `datos_bancarios_convocatoria` (`id`, `convocatoria_id`, `tipo_documento`, `documento`, `nombre`, `crp`, `no_cuentas_bancarias`, `entidad_bancaria`, `tipo_cuenta_bancaria`, `valor_crp`, `pagos_acumulados`, `cuota`, `saldo_por_pagar`) VALUES
+(1, 1, 'CC', '1061531645', 'ADRIAN FELIPE USSA MOSQUERA', '255326', '87075725994', 'Nequi S.A', 'Deposito electronico', 4814990.00, 1750906.00, '3', 2188631.00),
+(2, 1, 'CC', '1147955081', 'ALEJANDRA PARRA ROJAS', '163126', '470378274', 'Bogotá', 'Ahorros', 6565896.00, 3501812.00, '5', 2188631.00),
+(3, 1, 'TI', '1114623302', 'ANDRES CAMILO CRIOLLO DELGADO', '271426', '86497856282', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(4, 1, 'CC', '1073232845', 'ANGELA PATRICIA ABRIL CEPEDA', '271526', '3014449279', 'Davivienda', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(5, 1, 'CC', '1111667242', 'BRAYAN ESTIVEN GAVILANES DIAZ', '193126', '45160982008', 'Bancolombia', 'Ahorros', 5690443.00, 2626359.00, '4', 2188631.00),
+(6, 1, 'TI', '1059240504', 'CARLOS ALBERTO SANCHEZ DAZA', '271626', '87081546038', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(7, 1, 'CC', '1006211024', 'CRISTIAN ARCOS BENAVIDES', '305326', '87066836589', 'Nequi S.A', 'Deposito electronico', 3064084.00, 0.00, '1', 2188631.00),
+(8, 1, 'CC', '1061723885', 'DIANA CAROLINA SANTACRUZ TORRS', '122426', '87079687872', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(9, 1, 'CC', '1111667560', 'DILLAN ANDRES QUIÑONEZ ESCOBAR', '122626', '91284209562', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(10, 1, 'CC', '1110283346', 'EMMANUEL DAVID GARCES RUIZ', '123026', '74589152011', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(11, 1, 'CC', '1111481946', 'ERIC GIOVANNY MOMPOTES QUIRA', '193226', '51489121615', 'Bancolombia', 'Ahorros', 5690443.00, 2626359.00, '4', 2188631.00),
+(12, 1, 'CC', '1109189592', 'ERICK ALEJANDRO SILVA', '271726', '87083437488', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(13, 1, 'CC', '20627483', 'FANNY ESPERANZA LOPEZ CRISTANCHO', '163226', '35682687043', 'Bancolombia', 'Ahorros', 6565896.00, 3501812.00, '5', 2188631.00),
+(14, 1, 'CC', '1144075169', 'FANOR STIWAR ZAPATA MINA', '123226', '87054144506', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(15, 1, 'CC', '1063564295', 'IBETH PACHECO DE LA HOSTIA', '271826', '87052183490', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(16, 1, 'CC', '1087803295', 'JAINER JOSÉ HURTADO CUERO', '193326', '87062535114', 'Nequi S.A', 'Deposito electronico', 5690443.00, 2626359.00, '4', 2188631.00),
+(17, 1, 'CC', '1111672722', 'JANER ANDRES CUERO', '271926', '91204168143', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(18, 1, 'PPT', '3901244', 'JESES ALEJANDRO ROJAS SALAZAR', '272026', '51487240811', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(19, 1, 'CC', '1107034929', 'JHOJAN DAVID GALINDO ULCHUR', '272126', '87057548528', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(20, 1, 'CC', '1111479392', 'JHON ALEJANDRO VALENCIA PARRA', '255626', '87047203371', 'Nequi S.A', 'Deposito electronico', 4814990.00, 1750906.00, '3', 2188631.00),
+(21, 1, 'CC', '1111758514', 'JHON STIVEN LEYTON PATIÑO', '123826', '87055101171', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(22, 1, 'CC', '1058548493', 'JHONATAN ANDRÉS RIASCOS SOSCUÉ', '123926', '91297493383', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(23, 1, 'CC', '1112045308', 'JOSSER PEREZ ALVARAN', '193426', '87063951881', 'Nequi S.A', 'Deposito electronico', 5690443.00, 2626359.00, '4', 2188631.00),
+(24, 1, 'CC', '1111669790', 'JUAN CAMILO QUIÑONES RIASCOS', '255526', '91289108861', 'Bancolombia', 'Ahorros', 4814990.00, 1750906.00, '3', 2188631.00),
+(25, 1, 'CC', '1111758628', 'JUAN ESTEVAN BALANTA ARIAS', '124226', '87065116055', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '5', 2188631.00),
+(26, 1, 'CC', '1006016784', 'JUAN SEBASTIAN AGUIRRE ROJAS', '305426', '87054388928', 'Nequi S.A', 'Deposito electronico', 3064084.00, 0.00, '1', 2188631.00),
+(27, 1, 'CC', '1108560097', 'KAROL VANESA SANCHEZ NARANJO', '272226', '87079980280', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(28, 1, 'CC', '1092644938', 'KERLY LISBETH CONTRERAS GELVES', '272326', '91299124008', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(29, 1, 'CC', '1108564672', 'LAURA SOFIA SANDOVAL LAMPREA', '272426', '80712630004', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(30, 1, 'CC', '1111666464', 'LUZ ANGELA GÓMEZ MEDINA', '193526', '87057665483', 'Nequi S.A', 'Deposito electronico', 5690443.00, 2626359.00, '4', 2188631.00),
+(31, 1, 'CC', '1144213150', 'MAIKOL ANDRES ALVEAR', '272526', '24126705513', 'Caja Social', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(32, 1, 'CC', '1114622889', 'MARCO ANTONIO ANGULO MONTAÑO', '124926', '87075809800', 'Nequi S.A', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(33, 1, 'CC', '1059240235', 'MARIA DE LOS ANGELES MARTINEZ', '125026', '07785703833', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(34, 1, 'TI', '1114893003', 'MELANIE MICHELLE ORDOÑEZ CUCALÓN', '125226', '87065136692', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(35, 1, 'CC', '1080836965', 'MIGUEL ANGEL SEVILLANO CORTES', '125326', '91289546508', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(36, 1, 'CC', '1069734669', 'NIVER ALBERTO ARROYO HERNANDEZ', '272626', '26426563184', 'Bancolombia', 'Ahorros', 3939537.00, 875453.00, '2', 2188631.00),
+(37, 1, 'CC', '6102629', 'ORLANDO FAJARDO ANGEL', '125426', '87057501355', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(38, 1, 'CC', '1109117577', 'PABLO ANDRES PINZON MEDINA', '163426', '87053721853', 'Nequi S.A', 'Deposito electronico', 6565896.00, 3501812.00, '5', 2188631.00),
+(39, 1, 'CC', '24398364', 'RITA ESNEDA VILLADA ARIAS', '125626', '24106127126', 'Caja Social', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(40, 1, 'TI', '1104820533', 'SAMUEL STEVEN REALPE DELGADO', '125726', '06089118245', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(41, 1, 'CC', '1112046451', 'SAMUEL YANDI CHA', '255826', '3185521256', 'Davivienda', 'Ahorros', 4814990.00, 1750906.00, '3', 2188631.00),
+(42, 1, 'CC', '1150936518', 'SANTIAGO GARCIA VALLESILLA', '125826', '87079946340', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(43, 1, 'CC', '1110044405', 'SANTIAGO OSORIO ADARVE', '305526', '74171437150', 'Bancolombia', 'Ahorros', 3064084.00, 0.00, '1', 2188631.00),
+(44, 1, 'CC', '1029600434', 'SEBASTIAN REYES GOMEZ', '125926', '87081401372', 'Nequi S.A', 'Deposito electronico', 7441349.00, 4377265.00, '6', 2188631.00),
+(45, 1, 'CC', '1061724775', 'SHARIK NIKOL CEBALLOS SANCHEZ', '272726', '87062995802', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(46, 1, 'CC', '1114543389', 'WENDY MELISSA RODRIGUEZ CÁRDENAS', '255926', '91295537391', 'Bancolombia', 'Ahorros', 4814990.00, 1750906.00, '3', 2188631.00),
+(47, 1, 'CC', '1130678533', 'WILLIAM CAMPOS CASTRO', '272826', '87042649263', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(48, 1, 'PPT', '6119888', 'YHONALYS ALEXANDRA OCHOA COLAN', '272926', '87081916931', 'Nequi S.A', 'Deposito electronico', 3939537.00, 875453.00, '2', 2188631.00),
+(49, 1, 'CC', '1063809528', 'YONIER NICOLAS SOLARTE NARVAEZ', '305626', '87058213922', 'Nequi S.A', 'Deposito electronico', 3064084.00, 0.00, '1', 2188631.00),
+(50, 1, 'TI', '1059240939', 'YOSTIN FELIPE RIVERA VALENCIA', '126226', '51490920823', 'Bancolombia', 'Ahorros', 7441349.00, 4377265.00, '6', 2188631.00),
+(51, 1, 'CC', '1096618613', 'YURY AMADO NOVOA', '305726', '87052838199', 'Nequi S.A', 'Deposito electronico', 3064084.00, 0.00, '1', 2188631.00);
 
 -- --------------------------------------------------------
 
@@ -487,6 +567,13 @@ ALTER TABLE `convocatorias`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indices de la tabla `datos_bancarios_convocatoria`
+--
+ALTER TABLE `datos_bancarios_convocatoria`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `convocatoria_id` (`convocatoria_id`,`documento`);
+
+--
 -- Indices de la tabla `distribucion_fichas`
 --
 ALTER TABLE `distribucion_fichas`
@@ -515,7 +602,7 @@ ALTER TABLE `usuarios`
 -- AUTO_INCREMENT de la tabla `aprendices_mes`
 --
 ALTER TABLE `aprendices_mes`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=105;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=108;
 
 --
 -- AUTO_INCREMENT de la tabla `base_fic`
@@ -528,6 +615,12 @@ ALTER TABLE `base_fic`
 --
 ALTER TABLE `convocatorias`
   MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
+-- AUTO_INCREMENT de la tabla `datos_bancarios_convocatoria`
+--
+ALTER TABLE `datos_bancarios_convocatoria`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=52;
 
 --
 -- AUTO_INCREMENT de la tabla `distribucion_fichas`

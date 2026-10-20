@@ -135,7 +135,6 @@ if (!$mes_id) {
         if (isset($_POST['guardar_manual'])) {
             $doc_manual = trim($_POST['documento']);
             
-            // Verificar si ya está en otra convocatoria
             $stmtCheckGlobal->execute([$doc_manual, $convocatoria_id]);
             $otraConv = $stmtCheckGlobal->fetch(PDO::FETCH_ASSOC);
 
@@ -192,14 +191,12 @@ if (!$mes_id) {
                             $ficha = trim(str_replace(['"', "'"], '', $datos[5]));
                             
                             if(!empty($documento) && is_numeric($documento)) {
-                                // 1. Verificar si está en otra convocatoria
                                 $stmtCheckGlobal->execute([$documento, $convocatoria_id]);
                                 if ($stmtCheckGlobal->fetch()) {
                                     $bloqueados_otra_conv++;
                                     continue;
                                 }
 
-                                // 2. Verificar duplicados locales en el mes actual
                                 $stmtCheck->execute([$mes_id, $documento]);
                                 if($stmtCheck->rowCount() == 0 && !in_array($documento, $lista_duplicados)) {
                                     try {
@@ -235,7 +232,6 @@ if (!$mes_id) {
     
     $params = [$mes_id];
 
-    // Aplicar filtro de búsqueda por nombre o documento
     if (!empty($busqueda)) {
         $sqlList .= " AND (a.nombre LIKE ? OR a.documento LIKE ? OR a.ficha LIKE ?)";
         $param_busqueda = "%" . $busqueda . "%";
@@ -244,7 +240,6 @@ if (!$mes_id) {
         $params[] = $param_busqueda;
     }
 
-    // Aplicar filtro por estado (Cumple / Cancelado)
     if ($filtro_estado === 'cumple') {
         $sqlList .= " AND a.estado_seguimiento = 'Cumple'";
     } elseif ($filtro_estado === 'cancelados') {
@@ -264,6 +259,7 @@ if (!$mes_id) {
             <small class="text-muted fw-bold">Convocatoria: <?= htmlspecialchars($convocatoria_nombre) ?> | Cupos: <?= $inscritos ?> / <?= $cupos_totales ?></small>
         </div>
         <div class="d-flex gap-2">
+            
             <!-- Menú Desplegable de Reportes Excel -->
             <div class="dropdown">
                 <button class="btn btn-success fw-bold dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -285,7 +281,7 @@ if (!$mes_id) {
         </div>
     </div>
 
-    <!-- PANEL DE REPORTE FINANCIERO MEJORADO CON FONDO OSCURO Y TEXTO CLARO -->
+    <!-- PANEL DE REPORTE FINANCIERO -->
     <div class="card shadow-sm bg-dark text-white border-start border-success border-4 mb-3">
         <div class="card-body d-flex justify-content-between align-items-center py-2">
             <div>
@@ -439,7 +435,7 @@ if (!$mes_id) {
                             $novedad_texto = 'Sin novedad';
                             $alerta_fechas = '';
 
-                            // Cálculos de Tiempo
+                            // Cálculos de Tiempo (Actualizado a 30 días calendario)
                             if (!empty($a['fecha_fin_lectiva'])) {
                                 $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
                                 $fecha_limite = clone $fin_lectiva;

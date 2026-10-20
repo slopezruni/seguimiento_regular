@@ -8,12 +8,12 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$rol_actual =$_SESSION['rol'] ?? 'visualizador';
-$nombre_usuario =$_SESSION['nombre'] ?? 'Usuario';
+$rol_actual = $_SESSION['rol'] ?? 'visualizador';
+$nombre_usuario = $_SESSION['nombre'] ?? 'Usuario';
 
 if (isset($pdo)) {
-    $stmtSidebar =$pdo->query("SELECT id, nombre FROM convocatorias ORDER BY id DESC");
-    $lista_convocatorias =$stmtSidebar->fetchAll(PDO::FETCH_ASSOC);
+    $stmtSidebar = $pdo->query("SELECT id, nombre FROM convocatorias ORDER BY id DESC");
+    $lista_convocatorias = $stmtSidebar->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $lista_convocatorias = [];
 }
@@ -53,16 +53,16 @@ if (isset($pdo)) {
         </a>
         
         <a href="/seguimiento-regular/modules/convocatorias/index.php" class="sidebar-link mt-2">
-            <i class="bi bi-folder-fill me-2 text-success"></i> 1. Convocatorias
+            <i class="bi bi-folder-fill me-2 text-success"></i> Convocatorias
         </a>
 
         <div class="mt-2">
             <a href="#menuSeguimiento" data-bs-toggle="collapse" class="sidebar-link d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-calendar-check-fill me-2 text-success"></i> 2. Seguimientos</span>
+                <span><i class="bi bi-calendar-check-fill me-2 text-success"></i> Seguimientos</span>
                 <i class="bi bi-chevron-down"></i>
             </a>
             <div class="collapse show" id="menuSeguimiento">
-                <?php foreach ($lista_convocatorias as$c): ?>
+                <?php foreach ($lista_convocatorias as $c): ?>
                     <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="sidebar-link submenu-link">
                         <i class="bi bi-caret-right-fill me-1 text-success"></i> <?= htmlspecialchars($c['nombre']) ?>
                     </a>
@@ -72,20 +72,27 @@ if (isset($pdo)) {
 
         <div class="mt-2">
             <a href="/seguimiento-regular/modules/fichas/index.php" class="sidebar-link">
-                <i class="bi bi-journal-text me-2 text-success"></i> 3. Distribución Fichas
+                <i class="bi bi-journal-text me-2 text-success"></i> Distribución Fichas
             </a>
         </div>
 
         <div class="mt-2">
             <a href="/seguimiento-regular/modules/fic/index.php" class="sidebar-link">
-                <i class="bi bi-cone-striped me-2 text-success"></i> 4. Base de Datos FIC
+                <i class="bi bi-cone-striped me-2 text-success"></i> Base de Datos FIC
+            </a>
+        </div>
+
+        <!-- MÓDULO CIBERBANCO EN EL SIDEBAR -->
+        <div class="mt-2">
+            <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="sidebar-link">
+                <i class="bi bi-bank2 me-2 text-success"></i> Ciberbanco
             </a>
         </div>
 
         <?php if ($rol_actual === 'admin'): ?>
         <div class="mt-2">
             <a href="/seguimiento-regular/modules/usuarios/index.php" class="sidebar-link border-top border-secondary pt-3">
-                <i class="bi bi-people-fill me-2 text-success"></i> 5. Gestión de Usuarios
+                <i class="bi bi-people-fill me-2 text-success"></i> Gestión de Usuarios
             </a>
         </div>
         <?php endif; ?>

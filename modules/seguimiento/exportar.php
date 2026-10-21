@@ -2,115 +2,115 @@
 require_once '../../config/database.php';
 
 $mes_id = $_GET['mes_id'] ?? null;
-$tipo = $_GET['tipo'] ?? 'todos'; // Recibe el filtro: todos, cumple, cancelados
+$tipo = $_GET['tipo'] ?? 'todos'; // 'todos', 'cumple', 'cancelados'
 
 if (!$mes_id) {
-    exit('Mes no especificado.');
+    die("ID de mes no especificado.");
 }
 
-// Consultar el nombre del mes y de la convocatoria
-$stmtMeta = $pdo->prepare("
-    SELECT m.mes, c.nombre AS convocatoria 
+// 1. Obtener la información del mes
+$stmtMes = $pdo->prepare("
+    SELECT m.mes, c.nombre AS convocatoria_nombre 
     FROM meses_seguimiento m 
     JOIN convocatorias c ON m.convocatoria_id = c.id 
     WHERE m.id = ?
 ");
-$stmtMeta->execute([$mes_id]);
-$meta = $stmtMeta->fetch(PDO::FETCH_ASSOC);
+$stmtMes->execute([$mes_id]);
+$datos_mes = $stmtMes->fetch(PDO::FETCH_ASSOC);
 
-if (!$meta) {
-    exit('Seguimiento no encontrado.');
+if (!$datos_mes) {
+    die("Mes no encontrado.");
 }
 
-// Definir sufijo para el nombre del archivo según el filtro
-$sufijo_archivo = "Todos";
-if ($tipo === 'cumple') $sufijo_archivo = "Cumplen";
-if ($tipo === 'cancelados') $sufijo_archivo = "Cancelados";
+// 2. Traer los aprendices junto con la fecha de fin de lectiva y validación FIC
+$sql = "
+    SELECT a.*, 
+           (SELECT f.fecha_fin_lectiva 
+            FROM distribucion_fichas f 
+            WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) 
+            LIMIT 1) AS fecha_fin_lectiva,
+           (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
+    FROM aprendices_mes a 
+    LEFT JOIN base_fic fic ON TRIM(a.documento) = TRIM(fic.documento) 
+    WHERE a.mes_id = ?
+    ORDER BY a.nombre ASC
+";
+$stmt = $pdo->prepare($sql);
+$stmt->execute([$mes_id]);
+$todos_aprendices = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$nombre_archivo = "Reporte_" . $sufijo_archivo . "_" . preg_replace('/[^a-zA-Z0-9]/', '_', $meta['convocatoria']) . "_" . $meta['mes'] . ".csv";
+$hoy = new DateTime();
+$hoy->setTime(0, 0, 0);
 
-// Configurar cabeceras HTTP para forzar la descarga del CSV compatible con Excel
+$aprendices_filtrados = [];
+
+foreach ($todos_aprendices as $a) {
+    $estado_calculado = 'Cumple';
+
+    // Regla de tiempo de 30 días calendario
+    if (!empty($a['fecha_fin_lectiva'])) {
+        $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
+        $fecha_limite = clone $fin_lectiva;
+        $fecha_limite->modify('+30 days');
+        $fecha_limite->setTime(0, 0, 0);
+
+        $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');
+
+        // Solo se cancela si los días restantes son negativos (< 0) Y no tiene etapa productiva
+        if ($a['etapa_productiva'] == 'NO' && $dias_restantes < 0) {
+            $estado_calculado = 'Cancelado';
+        }
+    }
+
+    // Reglas excluyentes prioritarias
+    if ($a['tiene_fic_global'] == 'SI' || $a['contrato_aprendizaje'] == 'SI' || $a['vinculo_laboral'] == 'SI') {
+        $estado_calculado = 'Cancelado';
+    }
+
+    // Sincronizar en base de datos si estaba desactualizado
+    if ($a['estado_seguimiento'] !== $estado_calculado) {
+        $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?")
+            ->execute([$estado_calculado, $a['id']]);
+        $a['estado_seguimiento'] = $estado_calculado;
+    }
+
+    // Aplicar filtro según el botón presionado
+    if ($tipo === 'cumple' && $estado_calculado === 'Cumple') {
+        $aprendices_filtrados[] = $a;
+    } elseif ($tipo === 'cancelados' && $estado_calculado === 'Cancelado') {
+        $aprendices_filtrados[] = $a;
+    } elseif ($tipo === 'todos') {
+        $aprendices_filtrados[] = $a;
+    }
+}
+
+// 3. Generar la descarga en formato CSV / Excel
+$nombre_archivo = "REPORTE_" . strtoupper($tipo) . "_" . str_replace(' ', '_', $datos_mes['mes']) . ".csv";
+
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="' . $nombre_archivo . '"');
 
 $output = fopen('php://output', 'w');
-fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM UTF-8 para tildes y ñ
+// Agregar BOM para que Excel en Windows reconozca tildes y caracteres especiales
+fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
-// Cabeceras de columnas
-fputcsv($output, [
-    'TIPO DOC', 
-    'DOCUMENTO', 
-    'NOMBRE COMPLETO', 
-    'FICHA', 
-    'FIN LECTIVA', 
-    'APOYO FIC', 
-    'CONTRATO APRENDIZAJE', 
-    'VÍNCULO LABORAL', 
-    'ETAPA PRODUCTIVA', 
-    'ESTADO FINAL', 
-    'NOVEDAD ENCONTRADA'
-], ';');
+// Cabeceras
+fputcsv($output, ['#', 'Tipo Doc', 'Documento', 'Nombre Completo', 'Ficha', 'Fin Lectiva', 'FIC', 'Contrato', 'V. Laboral', 'E. Productiva', 'Estado Final'], ';');
 
-// Consulta de aprendices
-$sqlList = "SELECT a.*, f.fecha_fin_lectiva, (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
-            FROM aprendices_mes a 
-            LEFT JOIN distribucion_fichas f ON a.ficha = f.numero_ficha 
-            LEFT JOIN base_fic fic ON a.documento = fic.documento 
-            WHERE a.mes_id = ? ORDER BY a.nombre ASC";
-$stmtList = $pdo->prepare($sqlList);
-$stmtList->execute([$mes_id]);
-$aprendices = $stmtList->fetchAll(PDO::FETCH_ASSOC);
-
-$hoy = new DateTime();
-$hoy->setTime(0,0,0);
-
-foreach ($aprendices as $a) {
-    $estado_calculado = 'Cumple';
-    $novedad_texto = 'Sin novedad';
-
-    if (!empty($a['fecha_fin_lectiva'])) {
-        $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
-        $fecha_limite = clone $fin_lectiva;
-        $fecha_limite->modify('+20 days');
-        $fecha_limite->setTime(0,0,0);
-        
-        $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');
-
-        if ($a['etapa_productiva'] == 'NO') {
-            if ($dias_restantes < 0) {
-                $estado_calculado = 'Cancelado';
-                $novedad_texto = 'Fin de lectiva sin E. Productiva';
-            }
-        }
-    }
-
-    if ($a['tiene_fic_global'] == 'SI' || $a['apoyo_fic'] == 'SI') {
-        $estado_calculado = 'Cancelado';
-        $novedad_texto = 'Cancelado por FIC';
-    } elseif ($a['contrato_aprendizaje'] == 'SI') {
-        $estado_calculado = 'Cancelado';
-        $novedad_texto = 'Cancelado por Contrato';
-    } elseif ($a['vinculo_laboral'] == 'SI') {
-        $estado_calculado = 'Cancelado';
-        $novedad_texto = 'Cancelado por Vínculo Laboral';
-    }
-
-    // APLICAR FILTRO SELECCIONADO
-    if ($tipo === 'cumple' && $estado_calculado !== 'Cumple') continue;
-    if ($tipo === 'cancelados' && $estado_calculado !== 'Cancelado') continue;
-
+$i = 1;
+foreach ($aprendices_filtrados as $row) {
     fputcsv($output, [
-        $a['tipo_documento'],
-        $a['documento'],
-        $a['nombre'],
-        $a['ficha'],
-        $a['fecha_fin_lectiva'] ?? 'Sin Ficha',
-        ($a['tiene_fic_global'] == 'SI' ? 'SI' : $a['apoyo_fic']),
-        $a['contrato_aprendizaje'],
-        $a['vinculo_laboral'],
-        $a['etapa_productiva'],
-        $estado_calculado,
-        $novedad_texto
+        $i++,
+        $row['tipo_documento'],
+        $row['documento'],
+        $row['nombre'],
+        $row['ficha'],
+        $row['fecha_fin_lectiva'] ?? 'Sin registro',
+        $row['tiene_fic_global'],
+        $row['contrato_aprendizaje'],
+        $row['vinculo_laboral'],
+        $row['etapa_productiva'],
+        $row['estado_seguimiento']
     ], ';');
 }
 

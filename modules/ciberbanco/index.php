@@ -24,42 +24,33 @@ try {
     ");
 
     $checkCol = $pdo->query("SHOW COLUMNS FROM datos_bancarios_convocatoria LIKE 'saldo_por_pagar'");
-    if ($checkCol->rowCount() == 0) {
+    if ($checkCol && $checkCol->rowCount() == 0) {
         $pdo->exec("ALTER TABLE datos_bancarios_convocatoria ADD COLUMN saldo_por_pagar DECIMAL(15, 2) DEFAULT 0 AFTER cuota");
     }
 } catch (PDOException $e) {
-    // Continuar si ya existe
+    // Continuar
 }
 
-// Función para limpiar valores de moneda sin romper números enteros ni decimales
 function limpiarMoneda($valor) {
     if ($valor === null || $valor === '') return 0;
-    // Quitar signo peso, espacios y comillas
     $val = trim(str_replace(['$', ' ', '"', "'"], '', $valor));
-    // Si tiene puntos y comas (ej: 1.500.000,00 o 1,500,000.00)
     if (strpos($val, '.') !== false && strpos($val, ',') !== false) {
         if (strrpos($val, ',') > strrpos($val, '.')) {
-            // Formato colombiano/europeo: 1.500.000,00
             $val = str_replace('.', '', $val);
             $val = str_replace(',', '.', $val);
         } else {
-            // Formato americano: 1,500,000.00
             $val = str_replace(',', '', $val);
         }
     } elseif (substr_count($val, '.') > 1) {
-        // Múltiples puntos de miles: 1.500.000
         $val = str_replace('.', '', $val);
     } elseif (substr_count($val, ',') > 1) {
-        // Múltiples comas de miles: 1,500,000
         $val = str_replace(',', '', $val);
     } elseif (strpos($val, '.') !== false) {
-        // Un solo punto: si después del punto hay 3 dígitos exactos (ej: 875.453), es separador de miles
         $partes = explode('.', $val);
         if (strlen(end($partes)) === 3) {
             $val = str_replace('.', '', $val);
         }
     } elseif (strpos($val, ',') !== false) {
-        // Una sola coma: si después hay 3 dígitos exactos, es miles; si hay 1 o 2, es decimal
         $partes = explode(',', $val);
         if (strlen(end($partes)) === 3) {
             $val = str_replace(',', '', $val);
@@ -70,7 +61,7 @@ function limpiarMoneda($valor) {
     return floatval($val);
 }
 
-// Obtener todas las convocatorias para el selector principal
+// Obtener convocatorias
 $stmtConvs = $pdo->query("SELECT id, nombre FROM convocatorias ORDER BY id DESC");
 $convocatorias = $stmtConvs->fetchAll(PDO::FETCH_ASSOC);
 
@@ -85,7 +76,62 @@ if ($convocatoria_id) {
 
 $mensaje = "";
 
-// Procesar carga masiva de datos bancarios para la convocatoria seleccionada
+// 1. ACCIÓN: CREAR REGISTRO MANUAL
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_manual'])) {
+    $doc = trim(str_replace([' ', '.'], '', $_POST['documento']));
+    $tipo = strtoupper(trim($_POST['tipo_documento']));
+    $nombre = strtoupper(trim($_POST['nombre']));
+    $crp = trim($_POST['crp']);
+    $cuenta = trim($_POST['no_cuentas_bancarias']);
+    $entidad = trim($_POST['entidad_bancaria']);
+    $tipo_cuenta = trim($_POST['tipo_cuenta_bancaria']);
+    $valor_crp = limpiarMoneda($_POST['valor_crp']);
+    $pagos_acum = limpiarMoneda($_POST['pagos_acumulados']);
+    $cuota = !empty($_POST['cuota']) ? (string)intval($_POST['cuota']) : '';
+    $saldo_pagar = limpiarMoneda($_POST['saldo_por_pagar']);
+
+    if (!empty($doc) && is_numeric($doc)) {
+        try {
+            $stmtInsert = $pdo->prepare("
+                INSERT INTO datos_bancarios_convocatoria 
+                (convocatoria_id, tipo_documento, documento, nombre, crp, no_cuentas_bancarias, entidad_bancaria, tipo_cuenta_bancaria, valor_crp, pagos_acumulados, cuota, saldo_por_pagar) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmtInsert->execute([$convocatoria_id, $tipo, $doc, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Aprendiz guardado correctamente en el Ciberbanco.</div>";
+        } catch (PDOException $e) {
+            $mensaje = "<div class='alert alert-warning fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> El documento $doc ya existe en esta convocatoria. Puedes usar el botón 'Editar' en la tabla.</div>";
+        }
+    } else {
+        $mensaje = "<div class='alert alert-danger fw-bold'>El número de documento no es válido.</div>";
+    }
+}
+
+// 2. ACCIÓN: EDITAR REGISTRO
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_registro'])) {
+    $reg_id = $_POST['registro_id'];
+    $tipo = strtoupper(trim($_POST['tipo_documento']));
+    $nombre = strtoupper(trim($_POST['nombre']));
+    $crp = trim($_POST['crp']);
+    $cuenta = trim($_POST['no_cuentas_bancarias']);
+    $entidad = trim($_POST['entidad_bancaria']);
+    $tipo_cuenta = trim($_POST['tipo_cuenta_bancaria']);
+    $valor_crp = limpiarMoneda($_POST['valor_crp']);
+    $pagos_acum = limpiarMoneda($_POST['pagos_acumulados']);
+    $cuota = !empty($_POST['cuota']) ? (string)intval($_POST['cuota']) : '';
+    $saldo_pagar = limpiarMoneda($_POST['saldo_por_pagar']);
+
+    $stmtUpdate = $pdo->prepare("
+        UPDATE datos_bancarios_convocatoria 
+        SET tipo_documento = ?, nombre = ?, crp = ?, no_cuentas_bancarias = ?, entidad_bancaria = ?, tipo_cuenta_bancaria = ?, 
+            valor_crp = ?, pagos_acumulados = ?, cuota = ?, saldo_por_pagar = ?
+        WHERE id = ? AND convocatoria_id = ?
+    ");
+    $stmtUpdate->execute([$tipo, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar, $reg_id, $convocatoria_id]);
+    $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Datos del aprendiz actualizados con éxito.</div>";
+}
+
+// 3. ACCIÓN: CARGA MASIVA CSV
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocatoria'])) {
     if ($convocatoria_id && isset($_FILES['archivo_csv']) && $_FILES['archivo_csv']['error'] == 0) {
         $archivo = $_FILES['archivo_csv']['tmp_name'];
@@ -110,12 +156,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
         ");
 
         foreach ($lineas as $index => $linea) {
-            if ($index === 0) continue; // Saltar cabecera
+            if ($index === 0) continue;
             
             $separador = strpos($linea, ';') !== false ? ';' : ',';
             $datos = str_getcsv($linea, $separador);
             
-            // Acepta desde 10 columnas (si aún no tenía saldo) o 11 columnas (con saldo por pagar)
             if (count($datos) >= 10) {
                 $tipo_doc = trim(str_replace(['"', "'"], '', $datos[0]));
                 $documento = trim(str_replace(['"', "'", '.', ' '], '', $datos[1]));
@@ -127,11 +172,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
                 $val_crp = limpiarMoneda($datos[7]);
                 $pagos_acum = limpiarMoneda($datos[8]);
                 
-                // Cuota como entero limpio (ej: "3.00" o "3,00" -> 3)
                 $cuota_raw = trim(str_replace(['"', "'", ','], ['', '', '.'], $datos[9]));
                 $cuota = is_numeric($cuota_raw) ? (string)intval(floatval($cuota_raw)) : $cuota_raw;
                 
-                // Saldo por pagar (columna 11, índice 10)
                 $saldo_pagar = isset($datos[10]) ? limpiarMoneda($datos[10]) : 0;
 
                 if (!empty($documento) && is_numeric($documento)) {
@@ -153,13 +196,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
                 }
             }
         }
-        $mensaje = "<div class='alert alert-success fw-bold'>¡Carga exitosa! Se actualizaron los datos financieros de $registrados aprendices en esta convocatoria.</div>";
-    } else {
-        $mensaje = "<div class='alert alert-danger fw-bold'>Selecciona una convocatoria válida y adjunta un archivo CSV.</div>";
+        $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-cloud-check-fill'></i> Se actualizaron los datos financieros de $registrados aprendices.</div>";
     }
 }
 
-// Obtener lista de registros de la convocatoria seleccionada
+// Obtener registros
 $registros = [];
 if ($convocatoria_id) {
     $stmtList = $pdo->prepare("SELECT * FROM datos_bancarios_convocatoria WHERE convocatoria_id = ? ORDER BY nombre ASC");
@@ -169,81 +210,109 @@ if ($convocatoria_id) {
 ?>
 
 <div class="container-fluid px-4 py-3">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <h2><i class="bi bi-bank2 text-primary"></i> Módulo Ciberbanco</h2>
+            <h2><i class="bi bi-bank2 text-success"></i> Módulo Ciberbanco</h2>
             <p class="text-muted mb-0">Gestión de datos bancarios, cuentas, CRPs y saldos por convocatoria.</p>
         </div>
+        <?php if ($convocatoria_id): ?>
+        <button class="btn btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+            <i class="bi bi-person-plus-fill"></i> Agregar Aprendiz Manual
+        </button>
+        <?php endif; ?>
     </div>
 
     <?= $mensaje ?>
 
-    <!-- Selector de Convocatoria -->
-    <div class="card shadow-sm mb-4 border-0 bg-light">
-        <div class="card-body">
-            <form method="GET" class="row g-3 align-items-center">
+    <!-- Selector de Convocatoria y Búsqueda Rápida -->
+    <div class="card shadow-sm mb-3 border-0 bg-light">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
                 <div class="col-md-5">
-                    <label class="fw-bold mb-1">Seleccionar Convocatoria:</label>
-                    <select name="convocatoria_id" class="form-select fw-bold" onchange="this.form.submit()">
-                        <?php foreach ($convocatorias as $conv): ?>
-                            <option value="<?= $conv['id'] ?>" <?= $conv['id'] == $convocatoria_id ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($conv['nombre']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <form method="GET" class="m-0">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-white fw-bold">Convocatoria:</span>
+                            <select name="convocatoria_id" class="form-select fw-bold" onchange="this.form.submit()">
+                                <?php foreach ($convocatorias as $conv): ?>
+                                    <option value="<?= $conv['id'] ?>" <?= $conv['id'] == $convocatoria_id ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($conv['nombre']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </form>
                 </div>
-            </form>
+                <div class="col-md-7">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" id="filtroCiberbanco" class="form-control" placeholder="Buscar aprendiz por documento, nombre o CRP en tiempo real...">
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <?php if ($convocatoria_id): ?>
-        <!-- Tarjeta de Carga Masiva -->
-        <div class="card shadow-sm border-success mb-4">
-            <div class="card-header bg-success text-white fw-bold"><i class="bi bi-cloud-arrow-up-fill"></i> Carga Masiva de Datos Bancarios para: <?= htmlspecialchars($convocatoria_nombre) ?></div>
-            <div class="card-body">
-                <p class="text-muted small">
-                    Sube tu archivo CSV con el siguiente orden de 11 columnas (la primera fila es la cabecera):<br>
-                    <b>Tipo Doc ; Documento ; Nombre ; CRP ; N° Cuenta ; Entidad Bancaria ; Tipo Cuenta ; Valor CRP ; Pagos Acumulados ; Cuota ; Saldo Por Pagar</b>
-                </p>
-                <form method="POST" enctype="multipart/form-data" class="row g-2 align-items-center">
-                    <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
-                    <div class="col-md-6">
-                        <input type="file" name="archivo_csv" class="form-control" accept=".csv" required>
+        <!-- Acordeón para Carga Masiva (Ocultable para no estorbar la vista) -->
+        <div class="accordion mb-3" id="accordionCSV">
+            <div class="accordion-item shadow-sm border-success">
+                <h2 class="accordion-header" id="headingCSV">
+                    <button class="accordion-button collapsed py-2 bg-success bg-opacity-10 text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCSV" aria-expanded="false">
+                        <i class="bi bi-file-earmark-spreadsheet-fill me-2"></i> ¿Deseas hacer una carga masiva mediante archivo CSV? (Clic aquí)
+                    </button>
+                </h2>
+                <div id="collapseCSV" class="accordion-collapse collapse" data-bs-parent="#accordionCSV">
+                    <div class="accordion-body bg-light">
+                        <p class="text-muted small mb-2">
+                            Orden requerido de columnas (primera fila cabecera):<br>
+                            <b>Tipo Doc ; Documento ; Nombre ; CRP ; N° Cuenta ; Entidad Bancaria ; Tipo Cuenta ; Valor CRP ; Pagos Acumulados ; Cuota ; Saldo Por Pagar</b>
+                        </p>
+                        <form method="POST" enctype="multipart/form-data" class="row g-2 align-items-center">
+                            <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
+                            <div class="col-md-6">
+                                <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" name="subir_banco_convocatoria" class="btn btn-sm btn-success fw-bold w-100">
+                                    <i class="bi bi-upload"></i> Subir Base CSV
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="col-md-3">
-                        <button type="submit" name="subir_banco_convocatoria" class="btn btn-success fw-bold w-100"><i class="bi bi-upload"></i> Subir Datos</button>
-                    </div>
-                </form>
+                </div>
             </div>
         </div>
 
         <!-- Tabla Resumen -->
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-dark text-white fw-bold">Registros Bancarios de <?= htmlspecialchars($convocatoria_nombre) ?> (Total: <?= count($registros) ?>)</div>
+        <div class="card shadow-sm border-0 shadow-lg">
+            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>Registros de <?= htmlspecialchars($convocatoria_nombre) ?> (<span id="conteoRegistros"><?= count($registros) ?></span>)</span>
+            </div>
             <div class="card-body p-0">
-                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                    <table class="table table-striped table-hover mb-0 align-middle" style="font-size: 0.85em;">
+                <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
+                    <table class="table table-striped table-hover mb-0 align-middle" id="tablaCiberbanco" style="font-size: 0.85em;">
                         <thead class="table-light sticky-top">
                             <tr>
-                                <th>Tipo Doc</th>
+                                <th>Tipo</th>
                                 <th>Documento</th>
                                 <th>Nombre Completo</th>
                                 <th>CRP</th>
                                 <th>N° Cuenta</th>
-                                <th>Entidad Bancaria</th>
-                                <th>Tipo Cuenta</th>
+                                <th>Entidad</th>
+                                <th>Tipo Cta</th>
                                 <th class="text-end">Valor CRP</th>
                                 <th class="text-end">Pagos Acum.</th>
                                 <th class="text-center">Cuota</th>
                                 <th class="text-end">Saldo Pagar</th>
+                                <th class="text-center">Acción</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="tbodyCiberbanco">
                             <?php if (count($registros) === 0): ?>
-                                <tr><td colspan="11" class="text-center py-4 text-muted">No hay datos bancarios cargados para esta convocatoria todavía.</td></tr>
+                                <tr id="filaVacia"><td colspan="12" class="text-center py-4 text-muted">No hay datos bancarios registrados en esta convocatoria.</td></tr>
                             <?php endif; ?>
                             <?php foreach ($registros as $reg): ?>
-                                <tr>
+                                <tr class="fila-ciberbanco" data-busqueda="<?= strtolower(htmlspecialchars($reg['documento'] . ' ' . $reg['nombre'] . ' ' . ($reg['crp'] ?? ''))) ?>">
                                     <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($reg['tipo_documento']) ?></span></td>
                                     <td class="fw-bold"><?= htmlspecialchars($reg['documento']) ?></td>
                                     <td class="fw-bold text-uppercase"><?= htmlspecialchars($reg['nombre']) ?></td>
@@ -255,6 +324,25 @@ if ($convocatoria_id) {
                                     <td class="text-end fw-bold text-secondary"><?= !empty($reg['pagos_acumulados']) ? '$'.number_format($reg['pagos_acumulados'], 0, ',', '.') : '$0' ?></td>
                                     <td class="text-center fw-bold text-primary"><?= ($reg['cuota'] !== null && $reg['cuota'] !== '') ? intval($reg['cuota']) : '-' ?></td>
                                     <td class="text-end fw-bold text-danger"><?= !empty($reg['saldo_por_pagar']) ? '$'.number_format($reg['saldo_por_pagar'], 0, ',', '.') : '$0' ?></td>
+                                    <td class="text-center">
+                                        <button class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold btn-editar" 
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#modalEditar"
+                                                data-id="<?= $reg['id'] ?>"
+                                                data-tipo="<?= htmlspecialchars($reg['tipo_documento']) ?>"
+                                                data-doc="<?= htmlspecialchars($reg['documento']) ?>"
+                                                data-nombre="<?= htmlspecialchars($reg['nombre']) ?>"
+                                                data-crp="<?= htmlspecialchars($reg['crp']) ?>"
+                                                data-cuenta="<?= htmlspecialchars($reg['no_cuentas_bancarias']) ?>"
+                                                data-entidad="<?= htmlspecialchars($reg['entidad_bancaria']) ?>"
+                                                data-tipocuenta="<?= htmlspecialchars($reg['tipo_cuenta_bancaria']) ?>"
+                                                data-valcrp="<?= $reg['valor_crp'] ?>"
+                                                data-pagosacum="<?= $reg['pagos_acumulados'] ?>"
+                                                data-cuota="<?= ($reg['cuota'] !== null && $reg['cuota'] !== '') ? intval($reg['cuota']) : '' ?>"
+                                                data-saldopagar="<?= $reg['saldo_por_pagar'] ?>">
+                                            <i class="bi bi-pencil-square"></i> Editar
+                                        </button>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -262,6 +350,191 @@ if ($convocatoria_id) {
                 </div>
             </div>
         </div>
+
+        <!-- MODAL 1: AGREGAR APRENDIZ MANUAL -->
+        <div class="modal fade" id="modalNuevo" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <form method="POST">
+                        <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill me-2"></i> Agregar Datos Bancarios Manualmente</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Tipo Doc</label>
+                                    <input type="text" name="tipo_documento" class="form-control form-control-sm text-uppercase" placeholder="CC / TI" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Número Documento</label>
+                                    <input type="number" name="documento" class="form-control form-control-sm" placeholder="Sin puntos" required>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small fw-bold">Nombre Completo</label>
+                                    <input type="text" name="nombre" class="form-control form-control-sm text-uppercase" placeholder="Nombres y Apellidos" required>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">CRP</label>
+                                    <input type="text" name="crp" class="form-control form-control-sm" placeholder="Ej: 52424">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Número de Cuenta</label>
+                                    <input type="text" name="no_cuentas_bancarias" class="form-control form-control-sm" placeholder="N° de Cuenta">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Entidad Bancaria</label>
+                                    <input type="text" name="entidad_bancaria" class="form-control form-control-sm" placeholder="Ej: BANCOLOMBIA">
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Tipo Cuenta</label>
+                                    <input type="text" name="tipo_cuenta_bancaria" class="form-control form-control-sm" placeholder="Ej: AHORROS">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Valor CRP</label>
+                                    <input type="number" step="any" name="valor_crp" class="form-control form-control-sm" placeholder="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Pagos Acum.</label>
+                                    <input type="number" step="any" name="pagos_acumulados" class="form-control form-control-sm" placeholder="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Cuota (Entero)</label>
+                                    <input type="number" name="cuota" class="form-control form-control-sm" placeholder="Ej: 3">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Saldo Pagar</label>
+                                    <input type="number" step="any" name="saldo_por_pagar" class="form-control form-control-sm" placeholder="0">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer py-2">
+                            <button type="button" class="btn btn-secondary btn-sm fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" name="crear_manual" class="btn btn-primary btn-sm fw-bold"><i class="bi bi-save"></i> Guardar Aprendiz</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 2: EDITAR APRENDIZ EXISTENTE -->
+        <div class="modal fade" id="modalEditar" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <form method="POST">
+                        <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
+                        <input type="hidden" name="registro_id" id="edit_id">
+                        <div class="modal-header bg-dark text-white">
+                            <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Datos Bancarios del Aprendiz</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Tipo Doc</label>
+                                    <input type="text" name="tipo_documento" id="edit_tipo" class="form-control form-control-sm text-uppercase" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Documento (Bloqueado)</label>
+                                    <input type="text" id="edit_doc" class="form-control form-control-sm bg-light" readonly>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small fw-bold">Nombre Completo</label>
+                                    <input type="text" name="nombre" id="edit_nombre" class="form-control form-control-sm text-uppercase" required>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">CRP</label>
+                                    <input type="text" name="crp" id="edit_crp" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Número de Cuenta</label>
+                                    <input type="text" name="no_cuentas_bancarias" id="edit_cuenta" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Entidad Bancaria</label>
+                                    <input type="text" name="entidad_bancaria" id="edit_entidad" class="form-control form-control-sm">
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Tipo Cuenta</label>
+                                    <input type="text" name="tipo_cuenta_bancaria" id="edit_tipocuenta" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Valor CRP</label>
+                                    <input type="number" step="any" name="valor_crp" id="edit_valcrp" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Pagos Acum.</label>
+                                    <input type="number" step="any" name="pagos_acumulados" id="edit_pagosacum" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Cuota (Entero)</label>
+                                    <input type="number" name="cuota" id="edit_cuota" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-bold">Saldo Pagar</label>
+                                    <input type="number" step="any" name="saldo_por_pagar" id="edit_saldopagar" class="form-control form-control-sm">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer py-2">
+                            <button type="button" class="btn btn-secondary btn-sm fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" name="editar_registro" class="btn btn-success btn-sm fw-bold"><i class="bi bi-check-circle"></i> Guardar Cambios</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Filtrado instantáneo en la tabla
+            const inputFiltro = document.getElementById('filtroCiberbanco');
+            const filas = document.querySelectorAll('.fila-ciberbanco');
+            const conteo = document.getElementById('conteoRegistros');
+
+            if (inputFiltro) {
+                inputFiltro.addEventListener('input', function() {
+                    const texto = this.value.toLowerCase().trim();
+                    let visibles = 0;
+
+                    filas.forEach(function(fila) {
+                        const data = fila.getAttribute('data-busqueda') || '';
+                        if (texto === '' || data.includes(texto)) {
+                            fila.style.display = '';
+                            visibles++;
+                        } else {
+                            fila.style.display = 'none';
+                        }
+                    });
+                    if (conteo) conteo.textContent = visibles;
+                });
+            }
+
+            // Inyectar datos al Modal de Editar
+            const botonesEditar = document.querySelectorAll('.btn-editar');
+            botonesEditar.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    document.getElementById('edit_id').value = this.dataset.id;
+                    document.getElementById('edit_tipo').value = this.dataset.tipo;
+                    document.getElementById('edit_doc').value = this.dataset.doc;
+                    document.getElementById('edit_nombre').value = this.dataset.nombre;
+                    document.getElementById('edit_crp').value = this.dataset.crp;
+                    document.getElementById('edit_cuenta').value = this.dataset.cuenta;
+                    document.getElementById('edit_entidad').value = this.dataset.entidad;
+                    document.getElementById('edit_tipocuenta').value = this.dataset.tipocuenta;
+                    document.getElementById('edit_valcrp').value = this.dataset.valcrp;
+                    document.getElementById('edit_pagosacum').value = this.dataset.pagosacum;
+                    document.getElementById('edit_cuota').value = this.dataset.cuota;
+                    document.getElementById('edit_saldopagar').value = this.dataset.saldopagar;
+                });
+            });
+        });
+        </script>
     <?php endif; ?>
 </div>
 

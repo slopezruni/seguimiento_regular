@@ -96,10 +96,6 @@ if (!$mes_id) {
     $inscritos = (int)$stmtCount->fetchColumn();
     $cupos_disponibles = $cupos_totales - $inscritos;
 
-    // CAPTURAR PARÁMETROS DE BÚSQUEDA Y FILTRO
-    $busqueda = trim($_GET['q'] ?? '');
-    $filtro_estado = $_GET['estado'] ?? 'todos';
-
     // PREPARAR CONSULTA GLOBAL ANTIDUPLICADOS ENTRE CONVOCATORIAS
     $stmtCheckGlobal = $pdo->prepare("
         SELECT c.nombre 
@@ -110,10 +106,10 @@ if (!$mes_id) {
         LIMIT 1
     ");
 
-    // BLOQUE DE ACCIONES PROTEGIDAS (Solo se ejecutan si NO es visualizador)
+    // ACCIONES PROTEGIDAS
     if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
-        // A) EVALUACIÓN AUTOMÁTICA
+        // EVALUACIÓN RÁPIDA
         if (isset($_POST['evaluar_rapido'])) {
             $con = isset($_POST['contrato']) ? 'SI' : 'NO';
             $vin = isset($_POST['vinculo']) ? 'SI' : 'NO';
@@ -123,7 +119,7 @@ if (!$mes_id) {
             $stmtEval->execute([$con, $vin, $prod, $_POST['aprendiz_id']]);
         }
 
-        // B) REPORTE FINANCIERO
+        // REPORTE FINANCIERO
         if (isset($_POST['reportar_valor'])) {
             $stmtUpdateValor = $pdo->prepare("UPDATE meses_seguimiento SET valor_pagado = ? WHERE id = ?");
             $stmtUpdateValor->execute([$_POST['valor_ejecutado'], $mes_id]);
@@ -131,7 +127,7 @@ if (!$mes_id) {
             $datos_mes['valor_pagado'] = $_POST['valor_ejecutado']; 
         }
 
-        // C) CARGA MANUAL (Con validación antiduplicados global)
+        // CARGA MANUAL
         if (isset($_POST['guardar_manual'])) {
             $doc_manual = trim($_POST['documento']);
             
@@ -139,7 +135,7 @@ if (!$mes_id) {
             $otraConv = $stmtCheckGlobal->fetch(PDO::FETCH_ASSOC);
 
             if ($otraConv) {
-                echo "<div class='alert alert-danger mt-2 fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> Error: El aprendiz con documento {$doc_manual} ya se encuentra registrado en la convocatoria '{$otraConv['nombre']}'. No puede estar en dos convocatorias simultáneamente.</div>";
+                echo "<div class='alert alert-danger mt-2 fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> Error: El aprendiz con documento {$doc_manual} ya se encuentra registrado en la convocatoria '{$otraConv['nombre']}'.</div>";
             } elseif ($cupos_disponibles > 0) {
                 try {
                     $stmt = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
@@ -154,7 +150,7 @@ if (!$mes_id) {
             }
         }
 
-        // D) ELIMINAR APRENDIZ Y LIBERAR CUPO
+        // ELIMINAR APRENDIZ
         if (isset($_POST['eliminar_aprendiz'])) {
             $stmtDel = $pdo->prepare("DELETE FROM aprendices_mes WHERE id = ?");
             $stmtDel->execute([$_POST['id_eliminar']]);
@@ -163,7 +159,7 @@ if (!$mes_id) {
             $cupos_disponibles++;
         }
 
-        // E) CARGA MASIVA CSV (Con validación antiduplicados global)
+        // CARGA MASIVA CSV
         if (isset($_POST['subir_csv'])) {
             if ($_FILES['archivo_csv']['error'] == 0) {
                 if ($cupos_disponibles > 0) {
@@ -216,40 +212,23 @@ if (!$mes_id) {
                     if ($duplicados > 0) echo "<div class='alert alert-warning mt-2 fw-bold'>Se bloquearon $duplicados duplicados en este mes.</div>";
                     if ($limite_alcanzado) echo "<div class='alert alert-warning mt-2 fw-bold'>Se detuvo la carga por límite de cupo ($cupos_totales).</div>";
                 } else {
-                    echo "<div class='alert alert-danger mt-2 fw-bold'>Alerta: Cupo completo ($cupos_totales). No puedes realizar cargas masivas.</div>";
+                    echo "<div class='alert alert-danger mt-2 fw-bold'>Alerta: Cupo completo ($cupos_totales).</div>";
                 }
             }
         }
     }
 
-    // CONSULTA ULTRA-BLINDADA CON LIMPIEZA DE CARACTERES ESPECIALES Y ESPACIOS
+    // CARGAR TODOS LOS APRENDICES DEL MES
     $sqlList = "SELECT a.*, 
                 (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) LIMIT 1) AS fecha_fin_lectiva,
                 (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
                 FROM aprendices_mes a 
                 LEFT JOIN base_fic fic ON TRIM(a.documento) = TRIM(fic.documento) 
-                WHERE a.mes_id = ?";
-    
-    $params = [$mes_id];
-
-    if (!empty($busqueda)) {
-        $sqlList .= " AND (a.nombre LIKE ? OR a.documento LIKE ? OR a.ficha LIKE ?)";
-        $param_busqueda = "%" . $busqueda . "%";
-        $params[] = $param_busqueda;
-        $params[] = $param_busqueda;
-        $params[] = $param_busqueda;
-    }
-
-    if ($filtro_estado === 'cumple') {
-        $sqlList .= " AND a.estado_seguimiento = 'Cumple'";
-    } elseif ($filtro_estado === 'cancelados') {
-        $sqlList .= " AND a.estado_seguimiento = 'Cancelado'";
-    }
-
-    $sqlList .= " ORDER BY a.nombre ASC";
+                WHERE a.mes_id = ?
+                ORDER BY a.nombre ASC";
 
     $stmtList = $pdo->prepare($sqlList);
-    $stmtList->execute($params);
+    $stmtList->execute([$mes_id]);
     $aprendices = $stmtList->fetchAll(PDO::FETCH_ASSOC);
     ?>
 
@@ -259,7 +238,6 @@ if (!$mes_id) {
             <small class="text-muted fw-bold">Convocatoria: <?= htmlspecialchars($convocatoria_nombre) ?> | Cupos: <?= $inscritos ?> / <?= $cupos_totales ?></small>
         </div>
         <div class="d-flex gap-2">
-            
             <!-- Menú Desplegable de Reportes Excel -->
             <div class="dropdown">
                 <button class="btn btn-success fw-bold dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -303,42 +281,38 @@ if (!$mes_id) {
         </div>
     </div>
 
-    <!-- BARRA DE BÚSQUEDA Y FILTROS RÁPIDOS -->
+    <!-- BARRA DE BÚSQUEDA Y FILTRO EN TIEMPO REAL -->
     <div class="card shadow-sm mb-3 bg-light border-0">
         <div class="card-body py-2">
-            <form method="GET" class="row g-2 align-items-center">
-                <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
-                <input type="hidden" name="mes_id" value="<?= $mes_id ?>">
-                
-                <div class="col-md-6">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-7">
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                        <input type="text" name="q" class="form-control" placeholder="Buscar por Nombre, Documento o N° Ficha..." value="<?= htmlspecialchars($busqueda) ?>">
+                        <input type="text" id="filtroTexto" class="form-control" placeholder="Escribe para buscar por Nombre, Documento o Ficha en tiempo real..." autofocus>
                     </div>
                 </div>
 
                 <div class="col-md-3">
-                    <select name="estado" class="form-select form-select-sm">
-                        <option value="todos" <?= $filtro_estado === 'todos' ? 'selected' : '' ?>>Todos los estados</option>
-                        <option value="cumple" <?= $filtro_estado === 'cumple' ? 'selected' : '' ?>>Solo Cumplen</option>
-                        <option value="cancelados" <?= $filtro_estado === 'cancelados' ? 'selected' : '' ?>>Solo Cancelados</option>
+                    <select id="filtroEstado" class="form-select form-select-sm fw-bold">
+                        <option value="todos">Todos los estados</option>
+                        <option value="Cumple">Solo Cumplen</option>
+                        <option value="Cancelado">Solo Cancelados</option>
                     </select>
                 </div>
 
-                <div class="col-md-3 d-flex gap-1">
-                    <button type="submit" class="btn btn-sm btn-dark fw-bold w-100"><i class="bi bi-filter"></i> Filtrar</button>
-                    <?php if (!empty($busqueda) || $filtro_estado !== 'todos'): ?>
-                        <a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $mes_id ?>" class="btn btn-sm btn-outline-secondary" title="Limpiar filtros"><i class="bi bi-x-lg"></i></a>
-                    <?php endif; ?>
+                <div class="col-md-2">
+                    <button type="button" id="btnLimpiarFiltros" class="btn btn-sm btn-outline-secondary w-100 fw-bold">
+                        <i class="bi bi-eraser-fill"></i> Limpiar
+                    </button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 
     <!-- TABLA DE APRENDICES -->
     <div class="card shadow-sm border-0 shadow-lg">
         <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-            <span>Listado de Aprendices Encontrados (<?= count($aprendices) ?> de <?= $inscritos ?>)</span>
+            <span>Aprendices visibles: <span id="conteoVisibles" class="badge bg-primary fs-6"><?= count($aprendices) ?></span> de <?= $inscritos ?></span>
             
             <?php if(!$es_visualizador): ?>
                 <?php if($cupos_disponibles > 0): ?>
@@ -390,7 +364,7 @@ if (!$mes_id) {
 
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-hover table-sm align-middle border-bottom mb-0" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 950px;">
+                <table class="table table-hover table-sm align-middle border-bottom mb-0" id="tablaAprendices" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 950px;">
                     <colgroup>
                         <col style="width: 3%;">  <!-- # -->
                         <col style="width: 6%;">  <!-- Tipo Doc -->
@@ -419,9 +393,9 @@ if (!$mes_id) {
                             <?php if(!$es_visualizador): ?><th class="text-center px-1"><i class="bi bi-trash text-danger"></i></th><?php endif; ?>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="tbodyAprendices">
                         <?php if(count($aprendices) === 0): ?>
-                            <tr><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted">No se encontraron aprendices con los filtros de búsqueda aplicados.</td></tr>
+                            <tr id="filaSinDatos"><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted">No hay aprendices registrados en este mes.</td></tr>
                         <?php endif; ?>
                         
                         <?php 
@@ -435,7 +409,7 @@ if (!$mes_id) {
                             $novedad_texto = 'Sin novedad';
                             $alerta_fechas = '';
 
-                            // Cálculos de Tiempo (Actualizado a 30 días calendario)
+                            // Cálculos de Tiempo (30 días calendario)
                             if (!empty($a['fecha_fin_lectiva'])) {
                                 $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
                                 $fecha_limite = clone $fin_lectiva;
@@ -459,7 +433,7 @@ if (!$mes_id) {
                                 }
                             }
 
-                            // Reglas de Oro
+                            // Reglas Excluyentes
                             if ($a['tiene_fic_global'] == 'SI') {
                                 $estado_calculado = 'Cancelado';
                                 $novedad_texto = 'Cancelado por FIC Automático';
@@ -471,13 +445,16 @@ if (!$mes_id) {
                                 $novedad_texto = 'Cancelado por Vínculo Laboral';
                             }
 
-                            // Actualización silenciosa de estado (Solo si es gestor)
+                            // Sincronización silenciosa con la BD
                             if (!$es_visualizador && $a['estado_seguimiento'] !== $estado_calculado) {
                                 $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?")->execute([$estado_calculado, $a['id']]);
                             }
                         ?>
                         
-                        <tr id="fila_<?= $a['id'] ?>" class="<?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-25' : '' ?>">
+                        <tr id="fila_<?= $a['id'] ?>" 
+                            class="fila-aprendiz <?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-25' : '' ?>"
+                            data-estado="<?= $estado_calculado ?>"
+                            data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'])) ?>">
 
                             <td class="text-center fw-bold text-muted px-1">
                                 <?= $item++ ?>
@@ -554,11 +531,70 @@ if (!$mes_id) {
 
                         </tr>
                         <?php endforeach; ?>
+                        
+                        <tr id="sinCoincidencias" style="display: none;">
+                            <td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-4 text-muted fw-bold">
+                                <i class="bi bi-search me-1"></i> No se encontraron aprendices que coincidan con la búsqueda.
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+
+    <!-- SCRIPT DE FILTRADO INSTANTÁNEO EN TIEMPO REAL -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const inputTexto = document.getElementById('filtroTexto');
+        const selectEstado = document.getElementById('filtroEstado');
+        const btnLimpiar = document.getElementById('btnLimpiarFiltros');
+        const filas = document.querySelectorAll('.fila-aprendiz');
+        const conteoSpan = document.getElementById('conteoVisibles');
+        const filaSinCoincidencias = document.getElementById('sinCoincidencias');
+
+        function filtrarTabla() {
+            const texto = inputTexto.value.toLowerCase().trim();
+            const estado = selectEstado.value;
+            let visibles = 0;
+
+            filas.forEach(function (fila) {
+                const dataBusqueda = fila.getAttribute('data-busqueda') || '';
+                const dataEstado = fila.getAttribute('data-estado') || '';
+
+                const coincideTexto = texto === '' || dataBusqueda.includes(texto);
+                const coincideEstado = estado === 'todos' || dataEstado === estado;
+
+                if (coincideTexto && coincideEstado) {
+                    fila.style.display = '';
+                    visibles++;
+                } else {
+                    fila.style.display = 'none';
+                }
+            });
+
+            if (conteoSpan) {
+                conteoSpan.textContent = visibles;
+            }
+
+            if (filaSinCoincidencias) {
+                filaSinCoincidencias.style.display = (visibles === 0 && filas.length > 0) ? '' : 'none';
+            }
+        }
+
+        // Eventos en vivo: mientras se escribe (input) y cuando se cambia el select (change)
+        inputTexto.addEventListener('input', filtrarTabla);
+        selectEstado.addEventListener('change', filtrarTabla);
+
+        // Botón limpiar
+        btnLimpiar.addEventListener('click', function () {
+            inputTexto.value = '';
+            selectEstado.value = 'todos';
+            filtrarTabla();
+            inputTexto.focus();
+        });
+    });
+    </script>
 
 <?php 
 }

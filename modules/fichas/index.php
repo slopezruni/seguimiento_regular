@@ -2,314 +2,249 @@
 require_once '../../config/database.php';
 require_once '../../includes/header.php';
 
-$es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
+$mensaje = "";
 
-// CAPTURAR PARÁMETRO DE BÚSQUEDA
-$busqueda = trim($_GET['q'] ?? '');
+// 1. Carga Manual Individual
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_ficha_manual'])) {
+    $ficha = trim(str_replace([' ', '-', "'", '"'], '', $_POST['numero_ficha']));
+    $programa = strtoupper(trim($_POST['programa']));
+    $f_fin = !empty($_POST['fecha_fin_lectiva']) ? $_POST['fecha_fin_lectiva'] : null;
 
-$columna_programa = 'nombre_programa';
-try {
-    $stmtCols = $pdo->query("SHOW COLUMNS FROM distribucion_fichas");
-    $columnas_bd = $stmtCols->fetchAll(PDO::FETCH_COLUMN);
-    
-    if (in_array('programa', $columnas_bd)) {
-        $columna_programa = 'programa';
-    } elseif (in_array('nombre', $columnas_bd)) {
-        $columna_programa = 'nombre';
-    } elseif (in_array('programa_formacion', $columnas_bd)) {
-        $columna_programa = 'programa_formacion';
-    } elseif (in_array('nombre_programa', $columnas_bd)) {
-        $columna_programa = 'nombre_programa';
-    } else {
-        foreach ($columnas_bd as $col) {
-            if (!in_array($col, ['id', 'numero_ficha', 'fecha_fin_lectiva', 'created_at', 'updated_at'])) {
-                $columna_programa = $col;
-                break;
-            }
+    if (!empty($ficha)) {
+        try {
+            $stmtInsert = $pdo->prepare("
+                INSERT INTO distribucion_fichas (numero_ficha, programa, fecha_fin_lectiva) 
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE 
+                programa = VALUES(programa),
+                fecha_fin_lectiva = VALUES(fecha_fin_lectiva)
+            ");
+            $stmtInsert->execute([$ficha, !empty($programa) ? $programa : 'PROGRAMA NO ESPECIFICADO', $f_fin]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Ficha $ficha guardada correctamente.</div>";
+        } catch (PDOException $e) {
+            $mensaje = "<div class='alert alert-danger fw-bold'>Error al guardar: " . $e->getMessage() . "</div>";
         }
+    } else {
+        $mensaje = "<div class='alert alert-danger fw-bold'>El número de ficha no puede estar vacío.</div>";
     }
-} catch (Exception $e) {
-    $columna_programa = 'nombre_programa';
 }
 
-if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
+// 2. Carga Masiva CSV
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_fichas_csv'])) {
+    if (isset($_FILES['archivo_csv']) && $_FILES['archivo_csv']['error'] == 0) {
+        $archivo = $_FILES['archivo_csv']['tmp_name'];
+        $lineas = file($archivo, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $registrados = 0;
 
-    // A) CARGA MANUAL FICHA
-    if (isset($_POST['guardar_ficha_manual'])) {
-        $numero = trim($_POST['numero_ficha']);
-        $programa = strtoupper(trim($_POST['nombre_programa']));
-        $fecha_fin = trim($_POST['fecha_fin_lectiva']);
+        $stmtInsert = $pdo->prepare("
+            INSERT INTO distribucion_fichas (numero_ficha, programa, fecha_fin_lectiva) 
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+            programa = VALUES(programa),
+            fecha_fin_lectiva = VALUES(fecha_fin_lectiva)
+        ");
 
-        if (!empty($numero) && !empty($fecha_fin)) {
-            try {
-                $stmt = $pdo->prepare("INSERT INTO distribucion_fichas (numero_ficha, {$columna_programa}, fecha_fin_lectiva) VALUES (?, ?, ?)");
-                $stmt->execute([$numero, $programa, $fecha_fin]);
-                echo "<div class='alert alert-success mt-2 fw-bold'>Ficha registrada correctamente.</div>";
-            } catch (PDOException $e) {
-                echo "<div class='alert alert-danger mt-2 fw-bold'>Error: El número de ficha ya existe o hay un problema en la BD.</div>";
-            }
-        }
-    }
+        foreach ($lineas as $index => $linea) {
+            if ($index === 0) continue;
+            $separador = strpos($linea, ';') !== false ? ';' : ',';
+            $datos = str_getcsv($linea, $separador);
 
-    // A.2) EDITAR FICHA EXISTENTE
-    if (isset($_POST['editar_ficha'])) {
-        $id_ficha = $_POST['id_ficha'];
-        $numero = trim($_POST['numero_ficha']);
-        $programa = strtoupper(trim($_POST['nombre_programa']));
-        $fecha_fin = trim($_POST['fecha_fin_lectiva']);
+            if (count($datos) >= 2) {
+                $ficha = trim(str_replace(['"', "'", ' '], '', $datos[0]));
+                $programa = isset($datos[1]) ? trim(str_replace(['"', "'"], '', $datos[1])) : 'Programa no especificado';
+                $f_fin = !empty($datos[2]) ? date('Y-m-d', strtotime(str_replace('/', '-', trim($datos[2])))) : null;
 
-        if (!empty($id_ficha) && !empty($numero) && !empty($fecha_fin)) {
-            try {
-                $stmtUpdEdit = $pdo->prepare("UPDATE distribucion_fichas SET numero_ficha = ?, {$columna_programa} = ?, fecha_fin_lectiva = ? WHERE id = ?");
-                $stmtUpdEdit->execute([$numero, $programa, $fecha_fin, $id_ficha]);
-                echo "<div class='alert alert-success mt-2 fw-bold'>Ficha actualizada correctamente.</div>";
-            } catch (PDOException $e) {
-                echo "<div class='alert alert-danger mt-2 fw-bold'>Error al actualizar la ficha (posible número duplicado).</div>";
-            }
-        }
-    }
-
-    // B) CARGA MASIVA CSV FICHAS
-    if (isset($_POST['subir_fichas_csv'])) {
-        if ($_FILES['archivo_csv']['error'] == 0) {
-            $archivo = $_FILES['archivo_csv']['tmp_name'];
-            $lineas = file($archivo, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            $insertados = 0; $duplicados = 0;
-
-            $stmtCheck = $pdo->prepare("SELECT id FROM distribucion_fichas WHERE numero_ficha = ?");
-            $stmtInsert = $pdo->prepare("INSERT INTO distribucion_fichas (numero_ficha, {$columna_programa}, fecha_fin_lectiva) VALUES (?, ?, ?)");
-            $stmtUpd = $pdo->prepare("UPDATE distribucion_fichas SET {$columna_programa} = ?, fecha_fin_lectiva = ? WHERE numero_ficha = ?");
-
-            foreach ($lineas as $index => $linea) {
-                if ($index === 0) continue; // Saltar cabecera
-
-                $separador = strpos($linea, ';') !== false ? ';' : ',';
-                $datos = str_getcsv($linea, $separador);
-
-                if (count($datos) >= 3) {
-                    $numero = trim(str_replace(['"', "'"], '', $datos[0]));
-                    $programa = strtoupper(trim(str_replace(['"', "'"], '', $datos[1])));
-                    $fecha_fin = trim(str_replace(['"', "'"], '', $datos[2]));
-
-                    if (!empty($numero) && !empty($fecha_fin)) {
-                        $stmtCheck->execute([$numero]);
-                        if ($stmtCheck->rowCount() == 0) {
-                            try {
-                                $stmtInsert->execute([$numero, $programa, $fecha_fin]);
-                                $insertados++;
-                            } catch (PDOException $e) {
-                                $duplicados++;
-                            }
-                        } else {
-                            try {
-                                $stmtUpd->execute([$programa, $fecha_fin, $numero]);
-                                $insertados++;
-                            } catch (PDOException $e) {
-                                $duplicados++;
-                            }
-                        }
-                    }
+                if (!empty($ficha)) {
+                    $stmtInsert->execute([$ficha, strtoupper($programa), $f_fin]);
+                    $registrados++;
                 }
             }
-            if ($insertados > 0) echo "<div class='alert alert-success mt-2 fw-bold'>Carga de fichas procesada: $insertados fichas actualizadas/agregadas.</div>";
+        }
+        $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Se procesaron y actualizaron $registrados fichas técnicas.</div>";
+    } else {
+        $mensaje = "<div class='alert alert-danger fw-bold'>Error al subir el archivo CSV.</div>";
+    }
+}
+
+$stmt = $pdo->query("SELECT id, numero_ficha, programa, fecha_fin_lectiva FROM distribucion_fichas ORDER BY numero_ficha ASC");
+$fichas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+?>
+
+<div class="container-fluid px-4 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2><i class="bi bi-journal-text text-success"></i> Distribución de Fichas</h2>
+            <p class="text-muted mb-0">Gestión de calendarios, fichas formativas y fechas de finalización lectiva.</p>
+        </div>
+        <button class="btn btn-success fw-bold" data-bs-toggle="modal" data-bs-target="#modalNuevaFicha">
+            <i class="bi bi-plus-circle-fill"></i> Agregar Ficha Manual
+        </button>
+    </div>
+
+    <?= $mensaje ?>
+
+    <!-- Acordeón para Carga Masiva CSV -->
+    <div class="accordion mb-3" id="accordionFichas">
+        <div class="accordion-item shadow-sm border-success">
+            <h2 class="accordion-header" id="headingFichas">
+                <button class="accordion-button collapsed py-2 bg-success bg-opacity-10 text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFichas" aria-expanded="false">
+                    <i class="bi bi-file-earmark-spreadsheet-fill me-2 text-success"></i> ¿Deseas cargar o actualizar la Distribución de Fichas mediante CSV? (Clic aquí)
+                </button>
+            </h2>
+            <div id="collapseFichas" class="accordion-collapse collapse" data-bs-parent="#accordionFichas">
+                <div class="accordion-body bg-light">
+                    <p class="text-muted small mb-2">
+                        El archivo CSV debe tener las siguientes 3 columnas (la primera fila es la cabecera):<br>
+                        <b>Número Ficha ; Programa ; Fecha Fin Lectiva (AAAA-MM-DD)</b>
+                    </p>
+                    <form method="POST" enctype="multipart/form-data" class="row g-2 align-items-center">
+                        <div class="col-md-6">
+                            <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" name="subir_fichas_csv" class="btn btn-sm btn-success fw-bold w-100">
+                                <i class="bi bi-upload"></i> Subir Fichas
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barra de Búsqueda en Tiempo Real -->
+    <div class="card shadow-sm mb-3 bg-light border-0">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-10">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" id="filtroFichas" class="form-control" placeholder="Escribe para buscar por ficha o programa en tiempo real..." autofocus>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="button" id="btnLimpiarFichas" class="btn btn-sm btn-outline-secondary w-100 fw-bold">
+                        <i class="bi bi-eraser-fill"></i> Limpiar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla Resumen -->
+    <div class="card shadow-sm border-0 shadow-lg">
+        <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+            <span>Fichas visibles: <span id="conteoFichas" class="badge bg-success fs-6"><?= count($fichas) ?></span> de <?= count($fichas) ?></span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
+                <table class="table table-striped table-hover mb-0 align-middle" style="font-size: 0.85em;">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th style="width: 8%;" class="text-center">#</th>
+                            <th style="width: 22%;">N° Ficha</th>
+                            <th style="width: 48%;">Programa de Formación</th>
+                            <th style="width: 22%;" class="text-center">Fin Lectiva</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbodyFichas">
+                        <?php if (count($fichas) === 0): ?>
+                            <tr id="sinDatosFichas"><td colspan="4" class="text-center py-4 text-muted">No hay fichas registradas.</td></tr>
+                        <?php endif; ?>
+                        <?php $item = 1; foreach ($fichas as $f): ?>
+                            <tr class="fila-ficha" data-busqueda="<?= strtolower(htmlspecialchars($f['numero_ficha'] . ' ' . $f['programa'])) ?>">
+                                <td class="text-center fw-bold text-muted"><?= $item++ ?></td>
+                                <td class="fw-bold text-primary fs-6"><?= htmlspecialchars($f['numero_ficha']) ?></td>
+                                <td class="fw-bold text-uppercase"><?= htmlspecialchars($f['programa']) ?></td>
+                                <td class="text-center">
+                                    <?php if (!empty($f['fecha_fin_lectiva'])): ?>
+                                        <span class="badge bg-info text-dark fw-bold border border-dark"><?= htmlspecialchars($f['fecha_fin_lectiva']) ?></span>
+                                    <?php else: ?>
+                                        <span class="badge bg-secondary">Sin fecha</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <tr id="sinCoincidenciasFichas" style="display: none;">
+                            <td colspan="4" class="text-center py-4 text-muted fw-bold">
+                                <i class="bi bi-search me-1"></i> No se encontraron fichas que coincidan con la búsqueda.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: AGREGAR FICHA MANUAL -->
+<div class="modal fade" id="modalNuevaFicha" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-journal-plus me-2"></i> Agregar Ficha Manual</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Número de Ficha</label>
+                        <input type="text" name="numero_ficha" class="form-control form-control-sm" placeholder="Ej: 2999553" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Programa de Formación</label>
+                        <input type="text" name="programa" class="form-control form-control-sm text-uppercase" placeholder="Ej: ELECTRICIDAD INDUSTRIAL" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold">Fecha Fin Lectiva</label>
+                        <input type="date" name="fecha_fin_lectiva" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" name="crear_ficha_manual" class="btn btn-success btn-sm fw-bold"><i class="bi bi-save"></i> Guardar Ficha</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const inputFiltro = document.getElementById('filtroFichas');
+    const btnLimpiar = document.getElementById('btnLimpiarFichas');
+    const filas = document.querySelectorAll('.fila-ficha');
+    const conteo = document.getElementById('conteoFichas');
+    const sinCoincidencias = document.getElementById('sinCoincidenciasFichas');
+
+    function filtrarFichas() {
+        const texto = inputFiltro.value.toLowerCase().trim();
+        let visibles = 0;
+
+        filas.forEach(function (fila) {
+            const data = fila.getAttribute('data-busqueda') || '';
+            if (texto === '' || data.includes(texto)) {
+                fila.style.display = '';
+                visibles++;
+            } else {
+                fila.style.display = 'none';
+            }
+        });
+
+        if (conteo) conteo.textContent = visibles;
+        if (sinCoincidencias) {
+            sinCoincidencias.style.display = (visibles === 0 && filas.length > 0) ? '' : 'none';
         }
     }
 
-    // C) ELIMINAR FICHA
-    if (isset($_POST['eliminar_ficha_id'])) {
-        $id_del = $_POST['id_eliminar'];
-        $stmtDel = $pdo->prepare("DELETE FROM distribucion_fichas WHERE id = ?");
-        $stmtDel->execute([$id_del]);
-        echo "<div class='alert alert-success mt-2 fw-bold'>Ficha eliminada correctamente.</div>";
-    }
-}
+    inputFiltro.addEventListener('input', filtrarFichas);
 
-// CONSULTA DINÁMICA CON BÚSQUEDA
-$sqlFichas = "SELECT * FROM distribucion_fichas";
-$paramsFichas = [];
-
-if (!empty($busqueda)) {
-    $sqlFichas .= " WHERE numero_ficha LIKE ? OR {$columna_programa} LIKE ?";
-    $param_busqueda = "%" . $busqueda . "%";
-    $paramsFichas[] = $param_busqueda;
-    $paramsFichas[] = $param_busqueda;
-}
-
-$sqlFichas .= " ORDER BY numero_ficha ASC";
-
-$stmtFichas = $pdo->prepare($sqlFichas);
-$stmtFichas->execute($paramsFichas);
-$lista_fichas = $stmtFichas->fetchAll(PDO::FETCH_ASSOC);
-?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="mb-0"><i class="bi bi-journal-text text-info"></i> Distribución de Fichas (Fin de Lectiva)</h2>
-        <p class="text-muted mb-0">Control de fechas límites de etapa lectiva para el cálculo automático de cancelaciones.</p>
-    </div>
-</div>
-
-<?php if (!$es_visualizador): ?>
-<div class="row mb-4">
-
-    <div class="col-xl-6 mb-3 mb-xl-0">
-        <div class="card shadow-sm border-info h-100">
-            <div class="card-header bg-info text-dark fw-bold py-2">Registrar Ficha Manual</div>
-            <div class="card-body">
-                <form method="POST">
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
-                            <label class="small text-muted fw-bold">Número de Ficha</label>
-                            <input type="text" name="numero_ficha" class="form-control form-control-sm" placeholder="Ej: 2671234" required>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="small text-muted fw-bold">Fecha Fin Lectiva</label>
-                            <input type="date" name="fecha_fin_lectiva" class="form-control form-control-sm" required>
-                        </div>
-                        <div class="col-12 mb-2">
-                            <label class="small text-muted fw-bold">Nombre del Programa</label>
-                            <input type="text" name="nombre_programa" class="form-control form-control-sm text-uppercase" placeholder="Ej: Análisis y Desarrollo de Software" required>
-                        </div>
-                    </div>
-                    <button type="submit" name="guardar_ficha_manual" class="btn btn-info btn-sm w-100 fw-bold text-dark mt-2">Guardar Ficha</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Carga Masiva CSV -->
-    <div class="col-xl-6">
-        <div class="card shadow-sm border-warning h-100">
-            <div class="card-header bg-warning text-dark fw-bold py-2">Carga Masiva (CSV) Fichas</div>
-            <div class="card-body d-flex flex-column justify-content-center">
-                <p class="small text-muted mb-2">Sube un archivo CSV con las columnas: <code>Numero_Ficha, Nombre_Programa, Fecha_Fin_Lectiva (YYYY-MM-DD)</code>.</p>
-                <form method="POST" enctype="multipart/form-data" class="d-flex gap-2">
-                    <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
-                    <button type="submit" name="subir_fichas_csv" class="btn btn-warning btn-sm fw-bold text-nowrap">Subir CSV Fichas</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- BARRA DE BÚSQUEDA RÁPIDA -->
-<div class="card shadow-sm mb-3 bg-light border-0">
-    <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-center">
-            <div class="col-md-10">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                    <input type="text" name="q" class="form-control" placeholder="Buscar por Número de Ficha o Programa de Formación..." value="<?= htmlspecialchars($busqueda) ?>">
-                </div>
-            </div>
-            <div class="col-md-2 d-flex gap-1">
-                <button type="submit" class="btn btn-sm btn-dark fw-bold w-100"><i class="bi bi-filter"></i> Buscar</button>
-                <?php if (!empty($busqueda)): ?>
-                    <a href="index.php" class="btn btn-sm btn-outline-secondary" title="Limpiar búsqueda"><i class="bi bi-x-lg"></i></a>
-                <?php endif; ?>
-            </div>
-        </form>
-    </div>
-</div>
-
-<div class="row">
-    <div class="col-12">
-        <div class="card shadow-sm border-0 shadow-lg">
-            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span>Fichas Registradas en el Sistema (Encontradas: <?= count($lista_fichas) ?>)</span>
-                <span class="badge bg-info text-dark fs-6 rounded-pill"><?= count($lista_fichas) ?> Total</span>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0 align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th class="text-center" style="width: 5%;">#</th>
-                                <th style="width: 15%;">N° Ficha</th>
-                                <th>Programa de Formación</th>
-                                <th class="text-center" style="width: 20%;">Fecha Fin Lectiva</th>
-                                <?php if (!$es_visualizador): ?><th class="text-center" style="width: 15%;">Acciones</th><?php endif; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (count($lista_fichas) === 0): ?>
-                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No se encontraron fichas registradas.</td></tr>
-                            <?php endif; ?>
-
-                            <?php $item = 1; foreach ($lista_fichas as $f): 
-                                $programa_val = $f[$columna_programa] ?? ($f['nombre_programa'] ?? ($f['programa'] ?? ($f['nombre'] ?? 'SIN PROGRAMA')));
-                            ?>
-                            <tr>
-                                <td class="text-center fw-bold text-muted"><?= $item++ ?></td>
-                                <td class="fw-bold text-dark"><span class="badge bg-secondary fs-6"><?= htmlspecialchars($f['numero_ficha']) ?></span></td>
-                                <td class="fw-bold text-uppercase text-secondary"><?= htmlspecialchars($programa_val) ?></td>
-                                <td class="text-center fw-bold text-danger"><?= htmlspecialchars($f['fecha_fin_lectiva']) ?></td>
-                                
-                                <?php if (!$es_visualizador): ?>
-                                <td class="text-center">
-                                    <div class="d-flex justify-content-center gap-1">
-                                        <!-- Botón Editar que abre el Modal -->
-                                        <button type="button" class="btn btn-sm btn-outline-primary border-0" data-bs-toggle="modal" data-bs-target="#modalEditar_<?= $f['id'] ?>" title="Editar Ficha">
-                                            <i class="bi bi-pencil-square fs-6"></i>
-                                        </button>
-
-                                        <!-- Botón Eliminar -->
-                                        <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar la ficha <?= $f['numero_ficha'] ?>?');">
-                                            <input type="hidden" name="id_eliminar" value="<?= $f['id'] ?>">
-                                            <button type="submit" name="eliminar_ficha_id" class="btn btn-sm btn-outline-danger border-0" title="Eliminar ficha">
-                                                <i class="bi bi-trash3-fill fs-6"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-
-                                    <!-- MODAL DE EDICIÓN PARA CADA FICHA -->
-                                    <div class="modal fade text-start" id="modalEditar_<?= $f['id'] ?>" tabindex="-1" aria-hidden="true">
-                                        <div class="modal-dialog">
-                                            <div class="modal-content">
-                                                <form method="POST">
-                                                    <div class="modal-header bg-info text-dark">
-                                                        <h5 class="modal-title fw-bold">Editar Ficha: <?= htmlspecialchars($f['numero_ficha']) ?></h5>
-                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                    </div>
-                                                    <div class="modal-body">
-                                                        <input type="hidden" name="id_ficha" value="<?= $f['id'] ?>">
-                                                        
-                                                        <div class="mb-3">
-                                                            <label class="form-label fw-bold small">Número de Ficha</label>
-                                                            <input type="text" name="numero_ficha" class="form-control" value="<?= htmlspecialchars($f['numero_ficha']) ?>" required>
-                                                        </div>
-
-                                                        <div class="mb-3">
-                                                            <label class="form-label fw-bold small">Nombre del Programa</label>
-                                                            <input type="text" name="nombre_programa" class="form-control text-uppercase" value="<?= htmlspecialchars($programa_val) ?>" required>
-                                                        </div>
-
-                                                        <div class="mb-3">
-                                                            <label class="form-label fw-bold small">Fecha Fin Lectiva</label>
-                                                            <input type="date" name="fecha_fin_lectiva" class="form-control" value="<?= htmlspecialchars($f['fecha_fin_lectiva']) ?>" required>
-                                                        </div>
-                                                    </div>
-                                                    <div class="modal-footer">
-                                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                                                        <button type="submit" name="editar_ficha" class="btn btn-info btn-sm fw-bold">Guardar Cambios</button>
-                                                    </div>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <!-- FIN MODAL -->
-
-                                </td>
-                                <?php endif; ?>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+    btnLimpiar.addEventListener('click', function () {
+        inputFiltro.value = '';
+        filtrarFichas();
+        inputFiltro.focus();
+    });
+});
+</script>
 
 <?php require_once '../../includes/footer.php'; ?>

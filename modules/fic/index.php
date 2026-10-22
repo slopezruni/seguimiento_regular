@@ -2,6 +2,16 @@
 require_once '../../config/database.php';
 require_once '../../includes/header.php';
 
+// AUTO-VERIFICACIÓN DE LA COLUMNA 'tipo_documento' EN 'base_fic'
+try {
+    $checkCol = $pdo->query("SHOW COLUMNS FROM base_fic LIKE 'tipo_documento'");
+    if ($checkCol && $checkCol->rowCount() == 0) {
+        $pdo->exec("ALTER TABLE base_fic ADD COLUMN tipo_documento VARCHAR(10) DEFAULT NULL AFTER id");
+    }
+} catch (PDOException $e) {
+    // Continuar si la columna ya existe
+}
+
 $mensaje = "";
 
 // 1. Carga Manual Individual
@@ -152,7 +162,7 @@ $aprendices_fic = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <tr id="sinDatosFic"><td colspan="4" class="text-center py-4 text-muted">No hay registros en la base de datos FIC.</td></tr>
                         <?php endif; ?>
                         <?php $item = 1; foreach ($aprendices_fic as $af): ?>
-                            <tr class="fila-fic" data-busqueda="<?= strtolower(htmlspecialchars($af['documento'] . ' ' . $af['nombre'])) ?>">
+                            <tr class="fila-fic" data-busqueda="<?= strtolower(htmlspecialchars(($af['tipo_documento'] ?? '') . ' ' . $af['documento'] . ' ' . ($af['nombre'] ?? ''))) ?>">
                                 <td class="text-center fw-bold text-muted"><?= $item++ ?></td>
                                 <td class="text-center"><span class="badge bg-light text-dark border"><?= htmlspecialchars($af['tipo_documento'] ?? '-') ?></span></td>
                                 <td class="fw-bold"><?= htmlspecialchars($af['documento']) ?></td>
@@ -196,7 +206,7 @@ $aprendices_fic = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
                 <div class="modal-footer py-2">
                     <button type="button" class="btn btn-secondary btn-sm fw-bold" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" name="crear_fic_manual" class="btn btn-warning btn-sm fw-bold"><i class="bi bi-save"></i> Guardar en FIC</button>
+                    <button type="submit" name="crear_fic_manual" class="btn btn-warning btn-sm fw-bold text-dark"><i class="bi bi-save"></i> Guardar en FIC</button>
                 </div>
             </form>
         </div>

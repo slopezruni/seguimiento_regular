@@ -149,6 +149,10 @@ if (isset($pdo)) {
                 <i class="bi bi-diagram-3-fill me-2 text-success"></i> Distribución Fichas
             </a>
 
+            <a href="/seguimiento-regular/modules/df14/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/df14/') !== false ? 'active' : '' ?>">
+               <i class="bi bi-database-check me-2 text-success"></i> Base Mágica DF-14
+            </a>
+            
             <a href="/seguimiento-regular/modules/fic/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fic/') !== false ? 'active' : '' ?>">
                 <i class="bi bi-building-fill-gear me-2 text-success"></i> Base de Datos FIC
             </a>

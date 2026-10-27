@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1:3307
--- Tiempo de generación: 27-10-2026 a las 17:47:19
+-- Tiempo de generación: 27-10-2026 a las 18:13:48
 -- Versión del servidor: 10.4.32-MariaDB
 -- Versión de PHP: 8.2.12
 
@@ -250,9 +250,10 @@ CREATE TABLE `convocatorias` (
 --
 
 INSERT INTO `convocatorias` (`id`, `apoyo_id`, `nombre`, `periodo`, `cupos`, `presupuesto`, `created_at`) VALUES
-(1, 1, 'REGULAR CONVOCATORIA 1', '2026', 51, 300000000.00, '2026-10-17 02:44:13'),
-(2, 1, 'REGULAR CONVOCATORIA 2', '2026', 103, 500000000.00, '2026-10-17 02:44:37'),
-(4, 2, 'Convocatoria 1', '', 250, 180000000.00, '2026-10-27 16:17:54');
+(1, 1, 'CONVOCATORIA 1', '2026', 51, 30000000000.00, '2026-10-17 02:44:13'),
+(2, 1, 'CONVOCATORIA 2', '2026', 103, 50000000000.00, '2026-10-17 02:44:37'),
+(4, 2, 'Convocatoria 1', '', 250, 180000000.00, '2026-10-27 16:17:54'),
+(5, 1, 'Convocatoria 3', '', 220, 1000000000.00, '2026-10-27 17:11:17');
 
 -- --------------------------------------------------------
 
@@ -538,7 +539,7 @@ CREATE TABLE `tipos_apoyo` (
 --
 
 INSERT INTO `tipos_apoyo` (`id`, `nombre`, `descripcion`, `estado`) VALUES
-(1, 'Apoyo de Sostenimiento Regular', 'Apoyo monetario mensual para aprendices en etapa lectiva y productiva.', 'activo'),
+(1, 'Apoyo Regular', 'Apoyo monetario mensual para aprendices en etapa lectiva y productiva.', 'activo'),
 (2, 'Apoyo de transporte', 'Consignacion bancaria', 'activo');
 
 -- --------------------------------------------------------
@@ -646,7 +647,7 @@ ALTER TABLE `base_fic`
 -- AUTO_INCREMENT de la tabla `convocatorias`
 --
 ALTER TABLE `convocatorias`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT de la tabla `datos_bancarios_convocatoria`

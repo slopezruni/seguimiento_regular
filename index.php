@@ -2,192 +2,387 @@
 require_once 'config/database.php';
 require_once 'includes/header.php';
 
-// 1. Estadísticas globales
-$totalConvocatorias = $pdo->query("SELECT COUNT(*) FROM convocatorias")->fetchColumn();
-$totalFichas = $pdo->query("SELECT COUNT(*) FROM distribucion_fichas")->fetchColumn();
-$totalFicGlobal = $pdo->query("SELECT COUNT(*) FROM base_fic")->fetchColumn();
-$totalUsuarios = $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn();
+// Contexto del apoyo activo seleccionado en el menú lateral
+$apoyo_activo_id = $_SESSION['apoyo_activo_id'] ?? 1;
+
+// 1. Estadísticas globales (Misma lógica intacta, filtrando convocatorias por el apoyo activo)
+$stmtTotalConv = $pdo->prepare("SELECT COUNT(*) FROM convocatorias WHERE apoyo_id = ?");
+$stmtTotalConv->execute([$apoyo_activo_id]);
+$totalConvocatorias = $stmtTotalConv->fetchColumn() ?: 0;
+
+$totalFichas = $pdo->query("SELECT COUNT(*) FROM distribucion_fichas")->fetchColumn() ?: 0;
+$totalFicGlobal = $pdo->query("SELECT COUNT(*) FROM base_fic")->fetchColumn() ?: 0;
+$totalUsuarios = $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn() ?: 0;
 
 // Total de aprendices beneficiarios únicos registrados en las convocatorias (meses de seguimiento)
-$totalBeneficiariosConvocatorias = $pdo->query("SELECT COUNT(DISTINCT documento) FROM aprendices_mes")->fetchColumn();
+$totalBeneficiariosConvocatorias = $pdo->query("SELECT COUNT(DISTINCT documento) FROM aprendices_mes")->fetchColumn() ?: 0;
 
-// 2. Lógica financiera en tiempo real
-$presupuestoTotal = $pdo->query("SELECT SUM(presupuesto) FROM convocatorias")->fetchColumn() ?: 0;
-$ejecucionTotal = $pdo->query("SELECT SUM(valor_pagado) FROM meses_seguimiento")->fetchColumn() ?: 0;
+// 2. Lógica financiera en tiempo real (Filtrada por el apoyo activo para aislar presupuestos)
+$stmtPresup = $pdo->prepare("SELECT SUM(presupuesto) FROM convocatorias WHERE apoyo_id = ?");
+$stmtPresup->execute([$apoyo_activo_id]);
+$presupuestoTotal = (float)($stmtPresup->fetchColumn() ?: 0);
+
+$stmtEjec = $pdo->prepare("
+    SELECT SUM(m.valor_pagado) 
+    FROM meses_seguimiento m
+    INNER JOIN convocatorias c ON m.convocatoria_id = c.id
+    WHERE c.apoyo_id = ?
+");
+$stmtEjec->execute([$apoyo_activo_id]);
+$ejecucionTotal = (float)($stmtEjec->fetchColumn() ?: 0);
+
+$saldoTotalDisponible = $presupuestoTotal - $ejecucionTotal;
 $porcentajeEjecucion = ($presupuestoTotal > 0) ? min(100, round(($ejecucionTotal / $presupuestoTotal) * 100, 1)) : 0;
 
 // Desglose financiero por convocatoria
-$stmtFinanzas = $pdo->query("
+$stmtFinanzas = $pdo->prepare("
     SELECT c.id, c.nombre, c.cupos, c.presupuesto, 
            COALESCE(SUM(m.valor_pagado), 0) AS total_ejecutado
     FROM convocatorias c
     LEFT JOIN meses_seguimiento m ON c.id = m.convocatoria_id
+    WHERE c.apoyo_id = ?
     GROUP BY c.id, c.nombre, c.cupos, c.presupuesto
     ORDER BY c.id DESC
 ");
+$stmtFinanzas->execute([$apoyo_activo_id]);
 $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
+
+// Preparar arreglos para los gráficos de Chart.js
+$chartLabels = [];
+$chartPresupuesto = [];
+$chartEjecutado = [];
+
+foreach ($desgloseConvocatorias as $dc) {
+    $chartLabels[] = $dc['nombre'];
+    $chartPresupuesto[] = (float)$dc['presupuesto'];
+    $chartEjecutado[] = (float)$dc['total_ejecutado'];
+}
 ?>
 
-<!-- Sección Hero Institucional -->
-<div class="hero mb-4">
+<style>
+    .hero-dashboard {
+        background: linear-gradient(135deg, #00324D 0%, #004e75 55%, #39A900 100%);
+        border-radius: 16px;
+        padding: 1.8rem 2rem;
+        color: #ffffff;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 10px 25px -5px rgba(0, 50, 77, 0.25);
+    }
+    .hero-dashboard::after {
+        content: "";
+        position: absolute;
+        right: -40px;
+        bottom: -60px;
+        width: 240px;
+        height: 240px;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 50%;
+        pointer-events: none;
+    }
+    .kpi-icon-box {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+    }
+    .kpi-value {
+        font-size: 1.85rem;
+        font-weight: 800;
+        line-height: 1.1;
+        color: #0F172A;
+    }
+    .kpi-card-link {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+    .finance-stat-box {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        transition: all 0.2s ease;
+    }
+    .finance-stat-box:hover {
+        background: #ffffff;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    }
+</style>
+
+<!-- 1. SECCIÓN HERO INSTITUCIONAL -->
+<div class="hero-dashboard mb-4">
     <div class="row align-items-center">
-        <div class="col-md-8">
-            <h1 class="fw-bold mb-2">¡Bienvenido, <?= htmlspecialchars($_SESSION['nombre']) ?>!</h1>
-            <p class="lead mb-0 text-white-100">Sistema automatizado de control, seguimiento y gestión de apoyos de sostenimiento regular.</p>
+        <div class="col-lg-7">
+            <div class="d-inline-flex align-items-center gap-2 bg-white bg-opacity-10 border border-light border-opacity-25 rounded-pill px-3 py-1 mb-2 small">
+                <i class="bi bi-calendar3 text-warning"></i>
+                <span>Panel de Control en Tiempo Real &bull; <?= date('d/m/Y') ?></span>
+            </div>
+            <h2 class="fw-extrabold mb-1">¡Hola, <?= htmlspecialchars($_SESSION['nombre']) ?>!</h2>
+            <p class="mb-0 text-white-50" style="font-size: 0.95rem;">
+                Monitoreo presupuestal, cruce de bases y seguimiento de aprendices de <strong class="text-white"><?= htmlspecialchars($nombre_apoyo_header ?? 'Apoyo Socioeconómico') ?></strong>.
+            </p>
         </div>
-        <div class="col-md-4 text-md-end mt-3 mt-md-0">
-            <span class="badge bg-white text-success px-3 py-2 fs-6 fw-bold shadow-sm">
-                <i class="bi bi-shield-fill-check me-1"></i> Rol: <?= strtoupper(htmlspecialchars($_SESSION['rol'])) ?>
-            </span>
+        <div class="col-lg-5 text-lg-end mt-3 mt-lg-0">
+            <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                <a href="/seguimiento-regular/modules/convocatorias/index.php" class="btn btn-light btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm text-dark">
+                    <i class="bi bi-plus-circle-fill text-success me-1"></i> Convocatorias
+                </a>
+                <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm border border-light border-opacity-25">
+                    <i class="bi bi-bank2 me-1"></i> Ciberbanco
+                </a>
+                <a href="/seguimiento-regular/modules/fic/index.php" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 rounded-3">
+                    <i class="bi bi-building-fill-gear me-1"></i> Base FIC
+                </a>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Tarjetas de Estadísticas Principales -->
-<div class="row g-4 mb-4">
+<!-- 2. TARJETAS KPI INTERACTIVAS -->
+<div class="row g-3 mb-4">
     <!-- Convocatorias -->
     <div class="col-xl-3 col-md-6">
-        <div class="card bg-white border-start border-4 border-success h-100 py-2">
-            <div class="card-body">
-                <div class="text-uppercase fw-bold text-muted small mb-1">Convocatorias Activas</div>
-                <div class="stat text-dark"><?= $totalConvocatorias ?></div>
-                <div class="mt-2 text-success small fw-bold">
-                    <i class="bi bi-folder-fill me-1"></i> Gestion de convocatoria
+        <a href="/seguimiento-regular/modules/convocatorias/index.php" class="kpi-card-link h-100">
+            <div class="card card-kpi bg-white h-100" style="border-left-color: #39A900;">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-uppercase fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Convocatorias Activas</div>
+                        <div class="kpi-value my-1"><?= number_format($totalConvocatorias, 0, ',', '.') ?></div>
+                        <div class="text-success small fw-semibold" style="font-size: 0.78rem;">
+                            <i class="bi bi-arrow-up-right-circle-fill me-1"></i> Administrar cupos
+                        </div>
+                    </div>
+                    <div class="kpi-icon-box bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-folder2-open"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Aprendices Beneficiarios -->
+    <div class="col-xl-3 col-md-6">
+        <div class="card card-kpi bg-white h-100" style="border-left-color: #FF6B00;">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="text-uppercase fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Aprendices en Seguimiento</div>
+                    <div class="kpi-value my-1"><?= number_format($totalBeneficiariosConvocatorias, 0, ',', '.') ?></div>
+                    <div class=" small fw-semibold" style="font-size: 0.78rem; color: #FF6B00;">
+                        <i class="bi bi-people-fill me-1"></i> Beneficiarios únicos
+                    </div>
+                </div>
+                <div class="kpi-icon-box" style="background: rgba(255, 107, 0, 0.12); color: #FF6B00;">
+                    <i class="bi bi-person-check-fill"></i>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Fichas -->
+    <!-- Fichas Registradas -->
     <div class="col-xl-3 col-md-6">
-        <div class="card bg-white border-start border-4 border-info h-100 py-2">
-            <div class="card-body">
-                <div class="text-uppercase fw-bold text-muted small mb-1">Fichas Registradas</div>
-                <div class="stat text-dark"><?= $totalFichas ?></div>
-                <div class="mt-2 text-info small fw-bold">
-                    <i class="bi bi-journal-text me-1"></i> Fechas en lectiva
+        <a href="/seguimiento-regular/modules/fichas/index.php" class="kpi-card-link h-100">
+            <div class="card card-kpi bg-white h-100" style="border-left-color: #0284C7;">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-uppercase fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Fichas Registradas</div>
+                        <div class="kpi-value my-1"><?= number_format($totalFichas, 0, ',', '.') ?></div>
+                        <div class="text-info small fw-semibold" style="font-size: 0.78rem;">
+                            <i class="bi bi-diagram-3-fill me-1"></i> Fechas etapa lectiva
+                        </div>
+                    </div>
+                    <div class="kpi-icon-box bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-journal-bookmark-fill"></i>
+                    </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- Base FIC -->
     <div class="col-xl-3 col-md-6">
-        <div class="card bg-white border-start border-4 border-danger h-100 py-2">
-            <div class="card-body">
-                <div class="text-uppercase fw-bold text-muted small mb-1">Beneficiarios FIC</div>
-                <div class="stat text-dark"><?= $totalFicGlobal ?></div>
-                <div class="mt-2 text-danger small fw-bold">
-                    <i class="bi bi-cone-striped me-1"></i> Cruce automático
+        <a href="/seguimiento-regular/modules/fic/index.php" class="kpi-card-link h-100">
+            <div class="card card-kpi bg-white h-100" style="border-left-color: #DC2626;">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-uppercase fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Base de Datos FIC</div>
+                        <div class="kpi-value my-1"><?= number_format($totalFicGlobal, 0, ',', '.') ?></div>
+                        <div class="text-danger small fw-semibold" style="font-size: 0.78rem;">
+                            <i class="bi bi-shield-exclamation me-1"></i> Cruce automático activo
+                        </div>
+                    </div>
+                    <div class="kpi-icon-box bg-danger bg-opacity-10 text-danger">
+                        <i class="bi bi-cone-striped"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- 3. CENTRO DE INTELIGENCIA FINANCIERA Y GRÁFICOS -->
+<div class="row g-4 mb-4">
+    <!-- Panel Izquierdo: Resumen Presupuestal + Gráfico de Dona -->
+    <div class="col-xl-5">
+        <div class="card bg-white h-100">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <div class="fw-bold text-dark">
+                    <i class="bi bi-pie-chart-fill text-success me-2"></i>Balance Presupuestal en Vivo
+                </div>
+                <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1">
+                    <?= $porcentajeEjecucion ?>% Ejecutado
+                </span>
+            </div>
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div class="row g-2 mb-3">
+                    <div class="col-12">
+                        <div class="finance-stat-box d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.7rem;">Presupuesto Total Asignado</span>
+                                <h4 class="fw-extrabold text-dark mb-0">$<?= number_format($presupuestoTotal, 2, ',', '.') ?></h4>
+                            </div>
+                            <i class="bi bi-wallet2 fs-3 text-secondary opacity-50"></i>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="finance-stat-box border-start border-3 border-success">
+                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.68rem;">Total Pagado</span>
+                            <h5 class="fw-bold text-success mb-0">$<?= number_format($ejecucionTotal, 2, ',', '.') ?></h5>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="finance-stat-box border-start border-3 border-danger">
+                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.68rem;">Saldo por Ejecutar</span>
+                            <h5 class="fw-bold text-danger mb-0">$<?= number_format($saldoTotalDisponible, 2, ',', '.') ?></h5>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gráfico de Dona -->
+                <div class="position-relative mx-auto my-2" style="height: 190px; max-width: 240px;">
+                    <canvas id="chartDonaPresupuesto"></canvas>
+                </div>
+
+                <!-- Barra de Progreso Global -->
+                <div class="mt-2">
+                    <div class="d-flex justify-content-between small fw-bold text-muted mb-1" style="font-size: 0.75rem;">
+                        <span>Avance de Meta Financiera</span>
+                        <span class="text-success"><?= $porcentajeEjecucion ?>%</span>
+                    </div>
+                    <div class="progress" style="height: 12px; border-radius: 8px;">
+                        <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" 
+                             role="progressbar" 
+                             style="width: <?= $porcentajeEjecucion ?>%;">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Aprendices Beneficiarios en Convocatorias -->
-    <div class="col-xl-3 col-md-6">
-        <div class="card bg-white border-start border-4 border-warning h-100 py-2">
-            <div class="card-body">
-                <div class="text-uppercase fw-bold text-muted small mb-1">Beneficiarios en Convocatorias</div>
-                <div class="stat text-dark"><?= $totalBeneficiariosConvocatorias ?></div>
-                <div class="mt-2 text-warning text-dark fw-bold small">
-                    <i class="bi bi-people-fill me-1"></i> Aprendices activos en seguimiento
+    <!-- Panel Derecho: Gráfico Comparativo por Convocatoria -->
+    <div class="col-xl-7">
+        <div class="card bg-white h-100">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <div class="fw-bold text-dark">
+                    <i class="bi bi-bar-chart-line-fill text-success me-2"></i>Comparativa Financiera por Convocatoria
                 </div>
+                <span class="text-muted small">Asignado vs. Ejecutado</span>
+            </div>
+            <div class="card-body d-flex flex-column justify-content-center">
+                <?php if (count($desgloseConvocatorias) === 0): ?>
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+                        Aún no hay convocatorias registradas en este apoyo para graficar.
+                    </div>
+                <?php else: ?>
+                    <div style="height: 310px; width: 100%;">
+                        <canvas id="chartBarrasConvocatorias"></canvas>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 </div>
 
-<!-- ================================================================= -->
-<!-- PANEL INTERACTIVO DE EJECUCIÓN FINANCIERA EN VIVO -->
-<!-- ================================================================= -->
-<div class="card bg-white mb-4 shadow-sm">
-    <div class="card-header bg-success text-white fw-bold py-3 d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-cash-stack me-2"></i> Ejecución presupuestal total en Vivo</span>
-        <span class="badge bg-white text-success fs-6 fw-bold">Progreso: <?= $porcentajeEjecucion ?>%</span>
-    </div>
-    <div class="card-body">
-        <div class="row align-items-center mb-4">
-            <div class="col-md-4 text-center border-end">
-                <span class="text-muted small fw-bold text-uppercase d-block mb-1">Presupuesto Total Asignado</span>
-                <h3 class="fw-bold text-dark mb-0">$<?= number_format($presupuestoTotal, 2, ',', '.') ?></h3>
-            </div>
-            <div class="col-md-4 text-center border-end">
-                <span class="text-muted small fw-bold text-uppercase d-block mb-1">Total Ejecutado / Pagado</span>
-                <h3 class="fw-bold text-success mb-0">$<?= number_format($ejecucionTotal, 2, ',', '.') ?></h3>
-            </div>
-            <div class="col-md-4 text-center">
-                <span class="text-muted small fw-bold text-uppercase d-block mb-1">Saldo por Ejecutar</span>
-                <h3 class="fw-bold text-danger mb-0">$<?= number_format($presupuestoTotal - $ejecucionTotal, 2, ',', '.') ?></h3>
-            </div>
+<!-- 4. TABLA DE DESGLOSE FINANCIERO POR CONVOCATORIA CON BUSCADOR -->
+<div class="card bg-white mb-4">
+    <div class="card-header bg-dark text-white d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 py-3">
+        <div class="fw-bold">
+            <i class="bi bi-table me-2 text-success"></i>Detalle de Ejecución y Planillas por Convocatoria
         </div>
-
-        <!-- Barra de Progreso Interactiva -->
-        <div class="mb-2 d-flex justify-content-between small fw-bold text-muted">
-            <span>0%</span>
-            <span>Meta de Ejecución</span>
-            <span>100%</span>
+        <div class="input-group input-group-sm" style="max-width: 320px;">
+            <span class="input-group-text bg-white border-0"><i class="bi bi-search text-muted"></i></span>
+            <input type="text" id="buscadorConvDashboard" class="form-control border-0" placeholder="Filtrar convocatoria en tiempo real...">
         </div>
-        <div class="progress" style="height: 20px; border-radius: 10px;">
-            <div class="progress-bar bg-success progress-bar-striped progress-bar-animated fw-bold" 
-                 role="progressbar" 
-                 style="width: <?= $porcentajeEjecucion ?>%;" 
-                 aria-valuenow="<?= $porcentajeEjecucion ?>" 
-                 aria-valuemin="0" 
-                 aria-valuemax="100">
-                <?= $porcentajeEjecucion ?>% Ejecutado
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Desglose Financiero por Convocatoria -->
-<div class="card bg-white mb-4 shadow-sm">
-    <div class="card-header bg-dark text-white fw-bold py-3">
-        <i class="bi bi-bar-chart-fill me-2 text-success"></i>Ejecución por Convocatoria
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
+            <table class="table table-hover align-middle mb-0" id="tablaConvDashboard">
+                <thead>
                     <tr>
                         <th class="ps-4">Convocatoria</th>
                         <th class="text-center">Cupos</th>
                         <th class="text-end">Presupuesto Asignado</th>
                         <th class="text-end">Total Ejecutado</th>
-                        <th class="text-center" style="width: 25%;">% Ejecución</th>
-                        <th class="text-center">Acción</th>
+                        <th class="text-end">Saldo Disponible</th>
+                        <th class="text-center" style="width: 22%;">Progreso de Ejecución</th>
+                        <th class="text-center pe-4">Acción Rápida</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (count($desgloseConvocatorias) === 0): ?>
-                        <tr><td colspan="6" class="text-center py-4 text-muted">No hay convocatorias registradas para mostrar ejecución.</td></tr>
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">
+                                <i class="bi bi-folder-x fs-2 d-block mb-2"></i>
+                                No hay convocatorias registradas para mostrar ejecución.
+                            </td>
+                        </tr>
                     <?php endif; ?>
 
                     <?php foreach ($desgloseConvocatorias as $conv): 
                         $presup_conv = (float)$conv['presupuesto'];
                         $ejec_conv = (float)$conv['total_ejecutado'];
+                        $saldo_conv = $presup_conv - $ejec_conv;
                         $porc_conv = ($presup_conv > 0) ? min(100, round(($ejec_conv / $presup_conv) * 100, 1)) : 0;
+
+                        $colorBarra = 'warning';
+                        if ($porc_conv >= 90) $colorBarra = 'success';
+                        elseif ($porc_conv >= 40) $colorBarra = 'info';
                     ?>
-                    <tr>
-                        <td class="ps-4 fw-bold text-uppercase"><?= htmlspecialchars($conv['nombre']) ?></td>
-                        <td class="text-center"><span class="badge bg-secondary"><?= $conv['cupos'] ?></span></td>
-                        <td class="text-end fw-bold">
-                            <?= $presup_conv > 0 ? '$'.number_format($presup_conv, 2, ',', '.') : '<span class="text-muted fw-normal">Sin asignar</span>' ?>
-                        </td>
-                        <td class="text-end fw-bold text-success">$<?= number_format($ejec_conv, 2, ',', '.') ?></td>
-                        <td class="text-center align-middle">
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="progress w-100" style="height: 10px;">
-                                    <div class="progress-bar bg-<?= $porc_conv >= 100 ? 'success' : ($porc_conv > 50 ? 'info' : 'warning') ?>" 
-                                         style="width: <?= $porc_conv ?>%;"></div>
-                                </div>
-                                <span class="small fw-bold text-muted"><?= $porc_conv ?>%</span>
-                            </div>
+                    <tr class="fila-conv-dash">
+                        <td class="ps-4">
+                            <div class="fw-bold text-dark text-uppercase nombre-conv-item"><?= htmlspecialchars($conv['nombre']) ?></div>
+                            <span class="text-muted" style="font-size: 0.72rem;">ID #<?= $conv['id'] ?></span>
                         </td>
                         <td class="text-center">
-                            <a href="modules/seguimiento/index.php?convocatoria_id=<?= $conv['id'] ?>" class="btn btn-sm btn-outline-success fw-bold">
-                                Ver Planilla <i class="bi bi-arrow-right"></i>
+                            <span class="badge bg-secondary bg-opacity-10 text-dark border px-2 py-1 fw-bold">
+                                <i class="bi bi-people me-1 text-success"></i><?= $conv['cupos'] ?>
+                            </span>
+                        </td>
+                        <td class="text-end fw-bold text-dark">
+                            <?= $presup_conv > 0 ? '$'.number_format($presup_conv, 2, ',', '.') : '<span class="badge bg-warning text-dark">Sin asignar</span>' ?>
+                        </td>
+                        <td class="text-end fw-bold text-success">
+                            $<?= number_format($ejec_conv, 2, ',', '.') ?>
+                        </td>
+                        <td class="text-end fw-bold <?= $saldo_conv < 0 ? 'text-danger' : 'text-secondary' ?>">
+                            $<?= number_format($saldo_conv, 2, ',', '.') ?>
+                        </td>
+                        <td class="text-center align-middle px-3">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height: 8px; border-radius: 6px;">
+                                    <div class="progress-bar bg-<?= $colorBarra ?>" style="width: <?= $porc_conv ?>%;"></div>
+                                </div>
+                                <span class="small fw-bold text-dark" style="min-width: 42px; font-size: 0.78rem;"><?= $porc_conv ?>%</span>
+                            </div>
+                        </td>
+                        <td class="text-center pe-4">
+                            <a href="modules/seguimiento/index.php?convocatoria_id=<?= $conv['id'] ?>" class="btn btn-sm btn-success fw-bold rounded-pill px-3 shadow-sm">
+                                Abrir Planilla <i class="bi bi-arrow-right-short fs-6 align-middle"></i>
                             </a>
                         </td>
                     </tr>
@@ -197,5 +392,128 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 </div>
+
+<!-- SCRIPTS DE GRÁFICOS E INTERACTIVIDAD -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. Filtro rápido de la tabla de convocatorias
+    const inputBuscador = document.getElementById('buscadorConvDashboard');
+    if (inputBuscador) {
+        inputBuscador.addEventListener('input', function() {
+            const termino = this.value.toLowerCase().trim();
+            document.querySelectorAll('.fila-conv-dash').forEach(function(fila) {
+                const nombre = fila.querySelector('.nombre-conv-item').textContent.toLowerCase();
+                fila.style.display = nombre.includes(termino) ? '' : 'none';
+            });
+        });
+    }
+
+    // 2. Gráfico de Dona (Presupuesto Ejecutado vs Disponible)
+    const ctxDona = document.getElementById('chartDonaPresupuesto');
+    if (ctxDona) {
+        const ejecutado = <?= json_encode(max(0, $ejecucionTotal)) ?>;
+        const disponible = <?= json_encode(max(0, $saldoTotalDisponible)) ?>;
+        const sinPresupuesto = (ejecutado === 0 && disponible === 0) ? 1 : 0;
+
+        new Chart(ctxDona, {
+            type: 'doughnut',
+            data: {
+                labels: ['Ejecutado / Pagado', 'Saldo Disponible'],
+                datasets: [{
+                    data: sinPresupuesto ? [0, 1] : [ejecutado, disponible],
+                    backgroundColor: sinPresupuesto ? ['#E2E8F0', '#E2E8F0'] : ['#39A900', '#00324D'],
+                    borderWidth: 0,
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '72%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, font: { size: 11, family: 'Inter' } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (sinPresupuesto) return ' Sin presupuesto registrado';
+                                return ' $' + Number(context.raw).toLocaleString('es-CO');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. Gráfico de Barras Comparativo por Convocatoria
+    const ctxBarras = document.getElementById('chartBarrasConvocatorias');
+    if (ctxBarras) {
+        const labels = <?= json_encode($chartLabels) ?>;
+        const dataPresupuesto = <?= json_encode($chartPresupuesto) ?>;
+        const dataEjecutado = <?= json_encode($chartEjecutado) ?>;
+
+        new Chart(ctxBarras, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Presupuesto Asignado',
+                        data: dataPresupuesto,
+                        backgroundColor: '#00324D',
+                        borderRadius: 6,
+                        barPercentage: 0.65
+                    },
+                    {
+                        label: 'Total Ejecutado',
+                        data: dataEjecutado,
+                        backgroundColor: '#39A900',
+                        borderRadius: 6,
+                        barPercentage: 0.65
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#F1F5F9' },
+                        ticks: {
+                            callback: function(value) {
+                                if (value >= 1000000) return '$' + (value / 1000000).toFixed(1) + 'M';
+                                return '$' + value.toLocaleString('es-CO');
+                            },
+                            font: { size: 11, family: 'Inter' }
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 11, family: 'Inter', weight: '600' } }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        align: 'end',
+                        labels: { boxWidth: 12, font: { size: 12, family: 'Inter' } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return ' ' + context.dataset.label + ': $' + Number(context.raw).toLocaleString('es-CO');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
 
 <?php require_once 'includes/footer.php'; ?>

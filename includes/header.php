@@ -10,9 +10,10 @@ if (!isset($_SESSION['user_id'])) {
 
 $rol_actual = $_SESSION['rol'] ?? 'visualizador';
 $nombre_usuario = $_SESSION['nombre'] ?? 'Usuario';
+$uri_actual = $_SERVER['REQUEST_URI'] ?? '';
 
 if (isset($pdo)) {
-    // 1. Filtrado de apoyos según el rol
+    // 1. Filtrado de apoyos según el rol (Misma lógica intacta)
     if ($rol_actual === 'admin') {
         $stmtApoyos = $pdo->query("SELECT id, nombre FROM tipos_apoyo WHERE estado = 'activo' ORDER BY id ASC");
         $lista_apoyos = $stmtApoyos->fetchAll(PDO::FETCH_ASSOC);
@@ -25,7 +26,6 @@ if (isset($pdo)) {
         }
         $apoyo_activo_id = $_SESSION['apoyo_activo_id'] ?? 1;
     } else {
-        // Para gestor o visualizador: fijado al apoyo asignado en base de datos
         $apoyo_asignado = (int)($_SESSION['apoyo_usuario'] ?? 1);
         $stmtApoyos = $pdo->prepare("SELECT id, nombre FROM tipos_apoyo WHERE id = ? AND estado = 'activo'");
         $stmtApoyos->execute([$apoyo_asignado]);
@@ -33,6 +33,15 @@ if (isset($pdo)) {
 
         $_SESSION['apoyo_activo_id'] = $apoyo_asignado;
         $apoyo_activo_id = $apoyo_asignado;
+    }
+
+    // Obtener nombre del apoyo activo para mostrar en el cintillo superior
+    $nombre_apoyo_header = "Apoyo Socioeconómico";
+    foreach ($lista_apoyos as $ap_item) {
+        if ((int)$ap_item['id'] === (int)$apoyo_activo_id) {
+            $nombre_apoyo_header = $ap_item['nombre'];
+            break;
+        }
     }
 
     // 2. Convocatorias filtradas estrictamente por el apoyo activo
@@ -43,6 +52,7 @@ if (isset($pdo)) {
     $lista_apoyos = [];
     $lista_convocatorias = [];
     $apoyo_activo_id = 1;
+    $nombre_apoyo_header = "Apoyo Socioeconómico";
 }
 ?>
 <!DOCTYPE html>
@@ -50,34 +60,42 @@ if (isset($pdo)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Seguimiento Apoyos Socioeconómicos SENA</title>
+    <title>SENA | Gestión de Apoyos Socioeconómicos</title>
     <link rel="icon" type="image/webp" href="/seguimiento-regular/assets/img/logo_sena.webp">
+    <!-- Bootstrap 5.3 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/seguimiento-regular/assets/css/sena.css">
+    <!-- Chart.js para gráficos interactivos en el Dashboard -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Estilos Institucionales Renovados -->
+    <link rel="stylesheet" href="/seguimiento-regular/assets/css/sena.css?v=2.0">
 </head>
 <body>
 <div class="d-flex" id="wrapper">
+    <!-- SIDEBAR INSTITUCIONAL -->
     <div class="text-white shadow" id="sidebar-wrapper">
         
-        <!-- LOGO INSTITUCIONAL LOCAL -->
-        <div class="py-3 text-center border-bottom border-secondary mb-3 bg-black bg-opacity-25 px-2">
-            <div class="d-flex align-items-center justify-content-center gap-2 mb-1">
-                <img src="/seguimiento-regular/assets/img/logo_sena.webp" alt="Logo SENA" style="width: 35px; height: auto;">
-                <span class="fw-bold fs-4 text-success m-0">SENA</span>
-            </div>
-            <div class="text-uppercase text-light small fw-bold" style="font-size: 0.65em; letter-spacing: 1px; opacity: 0.85;">
-                Apoyo Socioeconómico
+        <!-- CABECERA LOGO SENA -->
+        <div class="sidebar-brand-box text-center">
+            <div class="d-flex align-items-center justify-content-center gap-2">
+                <div class="bg-white rounded-circle p-1 d-flex align-items-center justify-content-center shadow-sm" style="width: 42px; height: 42px;">
+                    <img src="/seguimiento-regular/assets/img/logo_sena.webp" alt="Logo SENA" style="width: 30px; height: auto;">
+                </div>
+                <div class="text-start">
+                    <div class="fw-bolder fs-5 text-white lh-1">SENA</div>
+                    <span class="badge bg-success mt-1" style="font-size: 0.62rem; letter-spacing: 0.5px;">REGIONAL VALLE</span>
+                </div>
             </div>
         </div>
 
-        <!-- SELECTOR DE APOYO -->
-        <div class="px-3 mb-3">
-            <label class="form-label text-success small fw-bold mb-1">
-                <i class="bi bi-filter-circle"></i> <?= $rol_actual === 'admin' ? 'Cambiar Apoyo:' : 'Apoyo Asignado:' ?>
+        <!-- SELECTOR DE CONTEXTO DE APOYO -->
+        <div class="apoyo-selector-box">
+            <label class="form-label text-white-50 mb-1 d-flex align-items-center justify-content-between" style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                <span><i class="bi bi-layers-fill text-success me-1"></i> Programa Activo</span>
             </label>
             <?php if ($rol_actual === 'admin'): ?>
-                <select class="form-select form-select-sm fw-bold bg-dark text-white border-secondary" onchange="location.href='?apoyo_id='+this.value">
+                <select class="form-select form-select-sm fw-bold bg-dark text-white border-secondary shadow-none" onchange="location.href='?apoyo_id='+this.value">
                     <?php foreach ($lista_apoyos as $ap): ?>
                         <option value="<?= $ap['id'] ?>" <?= $ap['id'] == $apoyo_activo_id ? 'selected' : '' ?>>
                             <?= htmlspecialchars($ap['nombre']) ?>
@@ -85,89 +103,114 @@ if (isset($pdo)) {
                     <?php endforeach; ?>
                 </select>
             <?php else: ?>
-                <div class="p-2 bg-dark rounded border border-secondary text-white fw-bold small text-truncate">
+                <div class="p-2 bg-dark bg-opacity-50 rounded border border-secondary text-white fw-bold small text-truncate" title="<?= !empty($lista_apoyos) ? htmlspecialchars($lista_apoyos[0]['nombre']) : 'Sin Apoyo Asignado' ?>">
+                    <i class="bi bi-check2-circle text-success me-1"></i>
                     <?= !empty($lista_apoyos) ? htmlspecialchars($lista_apoyos[0]['nombre']) : 'Sin Apoyo Asignado' ?>
                 </div>
             <?php endif; ?>
         </div>
-        
-        <a href="/seguimiento-regular/index.php" class="sidebar-link border-bottom border-secondary pb-3">
-            <i class="bi bi-house-door-fill me-2 text-success"></i> Inicio (Dashboard)
-        </a>
-        
-        <a href="/seguimiento-regular/modules/convocatorias/index.php" class="sidebar-link mt-2">
-            <i class="bi bi-folder-fill me-2 text-success"></i> Convocatorias
-        </a>
 
-        <div class="mt-2">
-            <a href="#menuSeguimiento" data-bs-toggle="collapse" class="sidebar-link d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-calendar-check-fill me-2 text-success"></i> Seguimientos</span>
-                <i class="bi bi-chevron-down"></i>
-            </a>
-            <div class="collapse show" id="menuSeguimiento">
-                <?php if(count($lista_convocatorias) === 0): ?>
-                    <span class="small text-muted px-3 py-1 d-block">Sin convocatorias en este apoyo.</span>
-                <?php endif; ?>
-                <?php foreach ($lista_convocatorias as $c): ?>
-                    <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="sidebar-link submenu-link">
-                        <i class="bi bi-caret-right-fill me-1 text-success"></i> <?= htmlspecialchars($c['nombre']) ?>
-                    </a>
-                <?php endforeach; ?>
+        <!-- NAVEGACIÓN PRINCIPAL -->
+        <div class="flex-grow-1 overflow-auto py-1">
+            <div class="px-3 py-1 text-white-50 fw-bold" style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.8px;">
+                Módulos Operativos
             </div>
-        </div>
 
-        <div class="mt-2">
-            <a href="/seguimiento-regular/modules/fichas/index.php" class="sidebar-link">
-                <i class="bi bi-journal-text me-2 text-success"></i> Distribución Fichas
+            <a href="/seguimiento-regular/index.php" class="sidebar-link <?= (strpos($uri_actual, '/seguimiento-regular/index.php') !== false || $uri_actual === '/seguimiento-regular/') ? 'active' : '' ?>">
+                <i class="bi bi-grid-1x2-fill me-2 text-success"></i> Dashboard General
             </a>
-        </div>
-
-        <div class="mt-2">
-            <a href="/seguimiento-regular/modules/fic/index.php" class="sidebar-link">
-                <i class="bi bi-cone-striped me-2 text-success"></i> Base de Datos FIC
+            
+            <a href="/seguimiento-regular/modules/convocatorias/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/convocatorias/') !== false ? 'active' : '' ?>">
+                <i class="bi bi-folder2-open me-2 text-success"></i> Convocatorias
             </a>
-        </div>
 
-        <div class="mt-2">
-            <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="sidebar-link">
+            <!-- SUBMENÚ DESPLEGABLE DE SEGUIMIENTOS / PLANILLAS -->
+            <div class="mt-1">
+                <a href="#menuSeguimiento" data-bs-toggle="collapse" class="sidebar-link d-flex justify-content-between align-items-center <?= strpos($uri_actual, '/modules/seguimiento/') !== false ? 'active' : '' ?>">
+                    <span><i class="bi bi-table me-2 text-success"></i> Seguimientos y Planillas</span>
+                    <i class="bi bi-chevron-down small"></i>
+                </a>
+                <div class="collapse show" id="menuSeguimiento">
+                    <?php if(count($lista_convocatorias) === 0): ?>
+                        <span class="small text-white-50 px-4 py-1 d-block" style="font-size: 0.75rem;">Sin convocatorias creadas.</span>
+                    <?php endif; ?>
+                    <?php foreach ($lista_convocatorias as $c): 
+                        $conv_activa = (strpos($uri_actual, '/modules/seguimiento/') !== false && isset($_GET['convocatoria_id']) && $_GET['convocatoria_id'] == $c['id']);
+                    ?>
+                        <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="sidebar-link submenu-link <?= $conv_activa ? 'active' : '' ?>">
+                            <i class="bi bi-arrow-return-right me-2 text-success"></i> 
+                            <span class="text-truncate"><?= htmlspecialchars($c['nombre']) ?></span>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <a href="/seguimiento-regular/modules/fichas/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fichas/') !== false ? 'active' : '' ?>">
+                <i class="bi bi-diagram-3-fill me-2 text-success"></i> Distribución Fichas
+            </a>
+
+            <a href="/seguimiento-regular/modules/fic/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fic/') !== false ? 'active' : '' ?>">
+                <i class="bi bi-building-fill-gear me-2 text-success"></i> Base de Datos FIC
+            </a>
+
+            <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/ciberbanco/') !== false ? 'active' : '' ?>">
                 <i class="bi bi-bank2 me-2 text-success"></i> Ciberbanco
             </a>
+
+            <?php if ($rol_actual === 'admin'): ?>
+                <div class="px-3 pt-3 pb-1 text-white-50 fw-bold" style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.8px;">
+                    Administración
+                </div>
+                <a href="/seguimiento-regular/modules/apoyos/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/apoyos/') !== false ? 'active' : '' ?>">
+                    <i class="bi bi-collection-fill me-2 text-success"></i> Gestión de Apoyos
+                </a>
+                <a href="/seguimiento-regular/modules/usuarios/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/usuarios/') !== false ? 'active' : '' ?>">
+                    <i class="bi bi-people-fill me-2 text-success"></i> Usuarios y Roles
+                </a>
+            <?php endif; ?>
         </div>
 
-        <?php if ($rol_actual === 'admin'): ?>
-        <div class="mt-2">
-            <a href="/seguimiento-regular/modules/apoyos/index.php" class="sidebar-link border-top border-secondary pt-3">
-                <i class="bi bi-collection-fill me-2 text-success"></i> Gestión de Apoyos
-            </a>
+        <!-- PIE DEL SIDEBAR -->
+        <div class="p-3 border-top border-secondary border-opacity-25 small text-white-50 text-center" style="font-size: 0.72rem;">
+            Bienestar al Aprendiz &bull; CEAI
         </div>
-
-        <div class="mt-2">
-            <a href="/seguimiento-regular/modules/usuarios/index.php" class="sidebar-link">
-                <i class="bi bi-people-fill me-2 text-success"></i> Gestión de Usuarios
-            </a>
-        </div>
-        <?php endif; ?>
     </div>
     
-    <div id="page-content-wrapper" class="w-100 bg-light">
-        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom px-4 py-2 shadow-sm mb-4">
-            <div class="container-fluid d-flex justify-content-between align-items-center">
-                <div class="text-secondary small fw-bold">
-                    <span class="text-success"><i class="bi bi-patch-check-fill"></i> Servicio Nacional de Aprendizaje</span> - Regional Valle
-                </div>
+    <!-- CONTENIDO PRINCIPAL -->
+    <div id="page-content-wrapper">
+        <nav class="navbar navbar-expand-lg navbar-light top-navbar px-4 py-2 mb-3">
+            <div class="container-fluid px-0 d-flex justify-content-between align-items-center">
+                
+                <!-- Botón Colapsar Menú + Indicador de Contexto -->
                 <div class="d-flex align-items-center gap-3">
-                    <span class="text-secondary small">
-                        <i class="bi bi-person-circle fs-5 me-1 text-success"></i> 
-                        <b><?= htmlspecialchars($nombre_usuario) ?></b> 
-                        <span class="badge bg-<?= $rol_actual === 'admin' ? 'danger' : ($rol_actual === 'gestor' ? 'success' : 'warning text-dark') ?> text-uppercase ms-1">
-                            <?= $rol_actual ?>
+                    <button class="btn-toggle-sidebar shadow-sm" id="sidebarToggle" title="Mostrar / Ocultar menú lateral">
+                        <i class="bi bi-layout-sidebar-inset fs-5"></i>
+                    </button>
+                    <div class="d-none d-sm-block">
+                        <div class="text-muted" style="font-size: 0.72rem; font-weight: 600; text-transform: uppercase;">Contexto de Trabajo Actual</div>
+                        <div class="fw-bold text-dark d-flex align-items-center gap-2">
+                            <span class="badge bg-success rounded-pill px-2 py-1"><i class="bi bi-check-circle-fill me-1"></i><?= htmlspecialchars($nombre_apoyo_header) ?></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Perfil del Usuario y Salida -->
+                <div class="d-flex align-items-center gap-3">
+                    <div class="d-flex align-items-center bg-light border rounded-pill px-3 py-1">
+                        <i class="bi bi-person-badge-fill fs-5 me-2 text-success"></i>
+                        <div class="lh-1 me-2">
+                            <div class="fw-bold text-dark" style="font-size: 0.8rem;"><?= htmlspecialchars($nombre_usuario) ?></div>
+                        </div>
+                        <span class="badge rounded-pill bg-<?= $rol_actual === 'admin' ? 'danger' : ($rol_actual === 'gestor' ? 'success' : 'warning text-dark') ?> text-uppercase" style="font-size: 0.65rem;">
+                            <?= htmlspecialchars($rol_actual) ?>
                         </span>
-                    </span>
-                    <a href="/seguimiento-regular/logout.php" class="btn btn-outline-danger btn-sm fw-bold">
-                        <i class="bi bi-box-arrow-right"></i> Salir
+                    </div>
+
+                    <a href="/seguimiento-regular/logout.php" class="btn btn-outline-danger btn-sm fw-bold rounded-pill px-3">
+                        <i class="bi bi-power"></i> <span class="d-none d-md-inline">Salir</span>
                     </a>
                 </div>
             </div>
         </nav>
 
-        <div class="container-fluid px-4 py-2">
+        <div class="container-fluid px-4 pb-4 flex-grow-1">

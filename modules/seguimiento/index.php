@@ -9,16 +9,25 @@ $mes_id = $_GET['mes_id'] ?? null;
 $es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
 
 if (!$convocatoria_id) {
-    echo "<div class='alert alert-danger'>Selecciona una convocatoria en el menú lateral.</div>";
+    echo "<div class='container-fluid px-4 py-5'><div class='alert alert-danger fw-bold border-0 shadow-sm'><i class='bi bi-exclamation-triangle-fill me-2'></i> Selecciona una convocatoria en el menú lateral.</div></div>";
     require_once '../../includes/footer.php';
     exit;
 }
 
-$stmtConv = $pdo->prepare("SELECT nombre, cupos FROM convocatorias WHERE id = ?");
+// OBTENER DATOS DE LA CONVOCATORIA Y SU TIPO DE APOYO
+$stmtConv = $pdo->prepare("
+    SELECT c.nombre, c.cupos, c.apoyo_id, t.nombre AS apoyo_nombre 
+    FROM convocatorias c 
+    LEFT JOIN tipos_apoyo t ON c.apoyo_id = t.id 
+    WHERE c.id = ?
+");
 $stmtConv->execute([$convocatoria_id]);
 $convocatoria_data = $stmtConv->fetch(PDO::FETCH_ASSOC);
 $convocatoria_nombre = $convocatoria_data['nombre'];
 $cupos_totales = (int)$convocatoria_data['cupos'];
+
+// DETECTAR SI ES EL APOYO DE TRANSPORTE PARA ACTIVAR EL CRUCE CON REGULAR
+$es_transporte = (stripos($convocatoria_data['apoyo_nombre'], 'transporte') !== false);
 
 // ====================================================================
 // VISTA 1: GESTIÓN DE LAS CARPETAS (MESES)
@@ -29,9 +38,9 @@ if (!$mes_id) {
         try {
             $stmt = $pdo->prepare("INSERT INTO meses_seguimiento (convocatoria_id, mes) VALUES (?, ?)");
             $stmt->execute([$convocatoria_id, $_POST['mes_nuevo']]);
-            echo "<div class='alert alert-success'>Mes creado correctamente.</div>";
+            $mensaje = "<div class='alert alert-success border-0 shadow-sm fw-bold mb-4'><i class='bi bi-check-circle-fill me-2'></i> Mes de seguimiento creado correctamente.</div>";
         } catch (PDOException $e) {
-            echo "<div class='alert alert-warning'>Ese mes ya existe en esta convocatoria.</div>";
+            $mensaje = "<div class='alert alert-warning border-0 shadow-sm fw-bold mb-4'><i class='bi bi-exclamation-circle-fill me-2'></i> Ese mes ya existe en esta convocatoria.</div>";
         }
     }
 
@@ -40,42 +49,67 @@ if (!$mes_id) {
     $meses = $stmtMeses->fetchAll(PDO::FETCH_ASSOC);
     ?>
 
-    <h2 class="mb-4">Seguimientos: <?= htmlspecialchars($convocatoria_nombre) ?></h2>
-    
-    <div class="row">
-        <?php if (!$es_visualizador): ?>
-        <div class="col-md-4">
-            <div class="card shadow-sm border-success mb-4">
-                <div class="card-header bg-success text-white fw-bold">Crear Mes de Seguimiento</div>
-                <div class="card-body">
-                    <form method="POST">
-                        <label class="fw-bold mb-1">Año y Mes</label>
-                        <input type="month" name="mes_nuevo" class="form-control mb-3" required>
-                        <button type="submit" name="crear_mes" class="btn btn-success w-100 fw-bold">Crear Mes en Blanco</button>
-                    </form>
+    <div class="container-fluid px-4 py-3">
+        <div class="mb-4">
+            <h2 class="fw-extrabold text-dark mb-1"><i class="bi bi-folder2-open text-success me-2"></i> Carpetas de Seguimiento</h2>
+            <p class="text-muted mb-0">Convocatoria: <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1"><?= htmlspecialchars($convocatoria_nombre) ?></span></p>
+        </div>
+        
+        <?= $mensaje ?? '' ?>
+
+        <div class="row">
+            <?php if (!$es_visualizador): ?>
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-success text-white fw-bold py-3"><i class="bi bi-calendar-plus-fill me-2"></i> Aperturar Nuevo Mes</div>
+                    <div class="card-body p-4">
+                        <form method="POST">
+                            <label class="form-label fw-bold small text-secondary">Selecciona Año y Mes</label>
+                            <input type="month" name="mes_nuevo" class="form-control form-control-lg mb-3 border-success" required>
+                            <button type="submit" name="crear_mes" class="btn btn-success w-100 fw-bold rounded-pill shadow-sm"><i class="bi bi-plus-lg me-1"></i> Crear Mes en Blanco</button>
+                        </form>
+                    </div>
                 </div>
             </div>
-        </div>
-        <?php endif; ?>
-        
-        <div class="<?= $es_visualizador ? 'col-md-12' : 'col-md-8' ?>">
-            <div class="card shadow-sm">
-                <div class="card-header bg-dark text-white fw-bold"><?= $es_visualizador ? '1.' : '2.' ?> Meses Disponibles</div>
-                <div class="card-body p-0">
-                    <table class="table table-striped mb-0">
-                        <thead class="table-light"><tr><th>Mes</th><th>Valor Reportado</th><th>Acción</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($meses as $m): ?>
-                                <tr>
-                                    <td class="fw-bold fs-5 align-middle"><?= htmlspecialchars($m['mes']) ?></td>
-                                    <td class="align-middle fw-bold <?= $m['valor_pagado'] > 0 ? 'text-success' : 'text-muted' ?>">
-                                        <?= $m['valor_pagado'] > 0 ? '$'.number_format($m['valor_pagado'], 0, ',', '.') : 'Sin Reportar' ?>
-                                    </td>
-                                    <td><a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $m['id'] ?>" class="btn btn-primary fw-bold">Abrir Planilla <i class="bi bi-arrow-right"></i></a></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+            <?php endif; ?>
+            
+            <div class="<?= $es_visualizador ? 'col-md-12' : 'col-md-8' ?>">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-journals me-2 text-success"></i> <?= $es_visualizador ? '1.' : '2.' ?> Meses Disponibles</span>
+                        <span class="badge bg-light text-dark border"><?= count($meses) ?> Registros</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4">Periodo (Mes)</th>
+                                        <th>Valor Reportado (Ejecución)</th>
+                                        <th class="text-center pe-4">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if(count($meses) === 0): ?>
+                                        <tr><td colspan="3" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-2 d-block mb-2"></i> Aún no hay meses creados para esta convocatoria.</td></tr>
+                                    <?php endif; ?>
+                                    <?php foreach ($meses as $m): ?>
+                                        <tr>
+                                            <td class="fw-bold fs-6 ps-4 text-uppercase"><i class="bi bi-calendar-event me-2 text-secondary"></i> <?= htmlspecialchars($m['mes']) ?></td>
+                                            <td class="fw-bold <?= $m['valor_pagado'] > 0 ? 'text-success' : 'text-muted' ?>">
+                                                <?= $m['valor_pagado'] > 0 ? '$'.number_format($m['valor_pagado'], 2, ',', '.') : '<span class="badge bg-warning text-dark">Pendiente de Reporte</span>' ?>
+                                            </td>
+                                            <td class="text-center pe-4">
+                                                <a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-success fw-bold rounded-pill px-3 shadow-sm">
+                                                    Abrir Planilla <i class="bi bi-arrow-right-short fs-6 align-middle"></i>
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -96,13 +130,13 @@ if (!$mes_id) {
     $inscritos = (int)$stmtCount->fetchColumn();
     $cupos_disponibles = $cupos_totales - $inscritos;
 
-    // PREPARAR CONSULTA GLOBAL ANTIDUPLICADOS ENTRE CONVOCATORIAS
+    // CONSULTA GLOBAL ANTIDUPLICADOS: Ahora bloquea solo si está en otra convocatoria DEL MISMO TIPO DE APOYO
     $stmtCheckGlobal = $pdo->prepare("
         SELECT c.nombre 
         FROM aprendices_mes am
         JOIN meses_seguimiento ms ON am.mes_id = ms.id
         JOIN convocatorias c ON ms.convocatoria_id = c.id
-        WHERE TRIM(am.documento) = TRIM(?) AND ms.convocatoria_id != ?
+        WHERE TRIM(am.documento) = TRIM(?) AND ms.convocatoria_id != ? AND c.apoyo_id = ?
         LIMIT 1
     ");
 
@@ -123,7 +157,7 @@ if (!$mes_id) {
         if (isset($_POST['reportar_valor'])) {
             $stmtUpdateValor = $pdo->prepare("UPDATE meses_seguimiento SET valor_pagado = ? WHERE id = ?");
             $stmtUpdateValor->execute([$_POST['valor_ejecutado'], $mes_id]);
-            echo "<div class='alert alert-success mt-2 fw-bold'><i class='bi bi-check-circle-fill'></i> Valor ejecutado reportado.</div>";
+            echo "<div class='alert alert-success mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-check-circle-fill me-2'></i> Valor ejecutado reportado exitosamente.</div>";
             $datos_mes['valor_pagado'] = $_POST['valor_ejecutado']; 
         }
 
@@ -131,22 +165,22 @@ if (!$mes_id) {
         if (isset($_POST['guardar_manual'])) {
             $doc_manual = trim($_POST['documento']);
             
-            $stmtCheckGlobal->execute([$doc_manual, $convocatoria_id]);
+            $stmtCheckGlobal->execute([$doc_manual, $convocatoria_id, $convocatoria_data['apoyo_id']]);
             $otraConv = $stmtCheckGlobal->fetch(PDO::FETCH_ASSOC);
 
             if ($otraConv) {
-                echo "<div class='alert alert-danger mt-2 fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> Error: El aprendiz con documento {$doc_manual} ya se encuentra registrado en la convocatoria '{$otraConv['nombre']}'.</div>";
+                echo "<div class='alert alert-danger mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-exclamation-triangle-fill me-2'></i> Error: El aprendiz con documento {$doc_manual} ya se encuentra registrado en la convocatoria '{$otraConv['nombre']}'.</div>";
             } elseif ($cupos_disponibles > 0) {
                 try {
                     $stmt = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
-                    $stmt->execute([$mes_id, $_POST['tipo_doc'], $doc_manual, $_POST['nombre'], $_POST['ficha']]);
-                    echo "<div class='alert alert-success mt-2 fw-bold'>Aprendiz agregado correctamente.</div>";
+                    $stmt->execute([$mes_id, $_POST['tipo_doc'], $doc_manual, strtoupper($_POST['nombre']), $_POST['ficha']]);
+                    echo "<div class='alert alert-success mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-check-circle-fill me-2'></i> Aprendiz agregado correctamente.</div>";
                     $inscritos++; $cupos_disponibles--;
                 } catch(PDOException $e) {
-                    echo "<div class='alert alert-danger mt-2 fw-bold'>ERROR: Documento duplicado en este mes.</div>";
+                    echo "<div class='alert alert-danger mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-exclamation-triangle-fill me-2'></i> ERROR: Documento duplicado en este mes.</div>";
                 }
             } else {
-                echo "<div class='alert alert-danger mt-2 fw-bold'>Alerta: Cupo completo ($cupos_totales).</div>";
+                echo "<div class='alert alert-danger mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-shield-x-fill me-2'></i> Alerta: Cupo completo ($cupos_totales).</div>";
             }
         }
 
@@ -154,12 +188,12 @@ if (!$mes_id) {
         if (isset($_POST['eliminar_aprendiz'])) {
             $stmtDel = $pdo->prepare("DELETE FROM aprendices_mes WHERE id = ?");
             $stmtDel->execute([$_POST['id_eliminar']]);
-            echo "<div class='alert alert-success mt-2 fw-bold'><i class='bi bi-trash3-fill'></i> Aprendiz eliminado correctamente. El cupo ha sido liberado.</div>";
+            echo "<div class='alert alert-success mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-trash3-fill me-2'></i> Aprendiz eliminado. El cupo ha sido liberado.</div>";
             $inscritos--; 
             $cupos_disponibles++;
         }
 
-        // CARGA MASIVA CSV
+        // CARGA MASIVA CSV (AJUSTADA AL FORMATO DEL REPORTE DEL SISTEMA)
         if (isset($_POST['subir_csv'])) {
             if ($_FILES['archivo_csv']['error'] == 0) {
                 if ($cupos_disponibles > 0) {
@@ -171,7 +205,7 @@ if (!$mes_id) {
                     $stmtInsert = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
                     
                     foreach($lineas as $index => $linea) {
-                        if ($index === 0) continue; 
+                        if ($index === 0) continue; // Salta la primera línea (cabeceras)
                         if ($cupos_disponibles <= 0) {
                             $limite_alcanzado = true;
                             break; 
@@ -180,14 +214,20 @@ if (!$mes_id) {
                         $separador = strpos($linea, ';') !== false ? ';' : ',';
                         $datos = str_getcsv($linea, $separador);
                         
-                        if (count($datos) >= 6) {
-                            $nombre = trim(str_replace(['"', "'"], '', $datos[1]));
-                            $tipo = strtoupper(trim(str_replace(['"', "'"], '', $datos[2])));
-                            $documento = trim(str_replace(['"', "'"], '', $datos[3]));
-                            $ficha = trim(str_replace(['"', "'"], '', $datos[5]));
+                        // VALIDACIÓN: Verificar que tenga al menos las 5 columnas base del reporte
+                        if (count($datos) >= 5) {
+                            
+                            // Extracción limpia (soporta y limpia espacios invisibles UTF-8)
+                            $tipo = strtoupper(trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[1])));
+                            $documento = trim(preg_replace('/[^0-9]/', '', $datos[2])); // Extrae solo los números del documento
+                            $nombre = strtoupper(trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[3])));
+                            $ficha = trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[4]));
+                            
+                            if (empty($nombre)) $nombre = 'SIN NOMBRE';
+                            if (empty($ficha) || stripos($ficha, 'registro') !== false) $ficha = 'SIN FICHA';
                             
                             if(!empty($documento) && is_numeric($documento)) {
-                                $stmtCheckGlobal->execute([$documento, $convocatoria_id]);
+                                $stmtCheckGlobal->execute([$documento, $convocatoria_id, $convocatoria_data['apoyo_id']]);
                                 if ($stmtCheckGlobal->fetch()) {
                                     $bloqueados_otra_conv++;
                                     continue;
@@ -196,7 +236,7 @@ if (!$mes_id) {
                                 $stmtCheck->execute([$mes_id, $documento]);
                                 if($stmtCheck->rowCount() == 0 && !in_array($documento, $lista_duplicados)) {
                                     try {
-                                        $stmtInsert->execute([$mes_id, $tipo, $documento, empty($nombre) ? 'Sin Nombre' : $nombre, $ficha]);
+                                        $stmtInsert->execute([$mes_id, $tipo, $documento, $nombre, $ficha]);
                                         $insertados++; $inscritos++; $cupos_disponibles--;
                                     } catch(PDOException $e) {
                                         $duplicados++; if(!in_array($documento, $lista_duplicados)) $lista_duplicados[] = $documento;
@@ -207,21 +247,28 @@ if (!$mes_id) {
                             }
                         }
                     }
-                    if ($insertados > 0) echo "<div class='alert alert-success mt-2 fw-bold'>Carga procesada: $insertados aprendices agregados.</div>";
-                    if ($bloqueados_otra_conv > 0) echo "<div class='alert alert-danger mt-2 fw-bold'>Se rechazaron $bloqueados_otra_conv aprendices porque ya están activos en otra convocatoria.</div>";
-                    if ($duplicados > 0) echo "<div class='alert alert-warning mt-2 fw-bold'>Se bloquearon $duplicados duplicados en este mes.</div>";
-                    if ($limite_alcanzado) echo "<div class='alert alert-warning mt-2 fw-bold'>Se detuvo la carga por límite de cupo ($cupos_totales).</div>";
+                    if ($insertados > 0) echo "<div class='alert alert-success mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-cloud-check-fill me-2'></i> Carga procesada: $insertados aprendices agregados exitosamente.</div>";
+                    if ($bloqueados_otra_conv > 0) echo "<div class='alert alert-danger mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-shield-x-fill me-2'></i> Se rechazaron $bloqueados_otra_conv aprendices porque ya están activos en otra convocatoria del mismo apoyo.</div>";
+                    if ($duplicados > 0) echo "<div class='alert alert-warning mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-exclamation-circle-fill me-2'></i> Se bloquearon $duplicados duplicados (ya existían en este mes).</div>";
+                    if ($limite_alcanzado) echo "<div class='alert alert-warning mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-stop-circle-fill me-2'></i> Se detuvo la carga por límite de cupo ($cupos_totales).</div>";
                 } else {
-                    echo "<div class='alert alert-danger mt-2 fw-bold'>Alerta: Cupo completo ($cupos_totales).</div>";
+                    echo "<div class='alert alert-danger mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-shield-x-fill me-2'></i> Alerta: Cupo completo ($cupos_totales).</div>";
                 }
             }
         }
     }
 
-    // CARGAR TODOS LOS APRENDICES DEL MES
+    // CARGAR TODOS LOS APRENDICES DEL MES (Incluyendo cruce con Regular si es Transporte)
     $sqlList = "SELECT a.*, 
                 (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) LIMIT 1) AS fecha_fin_lectiva,
-                (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global 
+                (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global,
+                (SELECT CASE WHEN COUNT(*) > 0 THEN 'SI' ELSE 'NO' END 
+                 FROM aprendices_mes am2 
+                 JOIN meses_seguimiento ms2 ON am2.mes_id = ms2.id 
+                 JOIN convocatorias c2 ON ms2.convocatoria_id = c2.id 
+                 JOIN tipos_apoyo t2 ON c2.apoyo_id = t2.id 
+                 WHERE TRIM(am2.documento) = TRIM(a.documento) 
+                 AND t2.nombre LIKE '%Regular%') AS activo_en_regular 
                 FROM aprendices_mes a 
                 LEFT JOIN base_fic fic ON TRIM(a.documento) = TRIM(fic.documento) 
                 WHERE a.mes_id = ?
@@ -232,313 +279,350 @@ if (!$mes_id) {
     $aprendices = $stmtList->fetchAll(PDO::FETCH_ASSOC);
     ?>
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="mb-0">Planilla de Seguimiento: <?= htmlspecialchars($datos_mes['mes']) ?></h2>
-            <small class="text-muted fw-bold">Convocatoria: <?= htmlspecialchars($convocatoria_nombre) ?> | Cupos: <?= $inscritos ?> / <?= $cupos_totales ?></small>
-        </div>
-        <div class="d-flex gap-2">
-            <!-- Menú Desplegable de Reportes Excel -->
-            <div class="dropdown">
-                <button class="btn btn-success fw-bold dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="bi bi-file-earmark-excel-fill"></i> Descargar Reportes
-                </button>
-                <ul class="dropdown-menu shadow">
-                    <li><a class="dropdown-item fw-bold text-primary" href="exportar_sena.php?mes_id=<?= $mes_id ?>"><i class="bi bi-file-earmark-excel me-2"></i> Descargar Planilla Oficial SENA</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item fw-bold" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=todos"><i class="bi bi-people-fill text-secondary me-2"></i> Reporte General (Todos)</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item fw-bold text-success" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=cumple"><i class="bi bi-check-circle-fill me-2"></i> Solo los que Cumplen</a></li>
-                    <li><a class="dropdown-item fw-bold text-danger" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=cancelados"><i class="bi bi-x-circle-fill me-2"></i> Solo los Cancelados</a></li>
-                </ul>
-            </div>
-
-            <a href="?convocatoria_id=<?= $convocatoria_id ?>" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Volver a los meses
-            </a>
-        </div>
-    </div>
-
-    <!-- PANEL DE REPORTE FINANCIERO -->
-    <div class="card shadow-sm bg-dark text-white border-start border-success border-4 mb-3">
-        <div class="card-body d-flex justify-content-between align-items-center py-2">
+    <div class="container-fluid px-4 py-3">
+        <!-- CABECERA PLANILLA GOVTECH -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
             <div>
-                <h6 class="mb-0 text-white fw-bold"><i class="bi bi-cash-stack text-success"></i> Valor Ejecutado (Pagado)</h6>
-            </div>
-            <?php if (!$es_visualizador): ?>
-            <form method="POST" class="d-flex gap-2 w-50">
-                <input type="number" name="valor_ejecutado" class="form-control form-control-sm fw-bold fs-6 text-end text-dark bg-light" 
-                       value="<?= $datos_mes['valor_pagado'] > 0 ? $datos_mes['valor_pagado'] : '' ?>" placeholder="Ej: 15000000" required>
-                <button type="submit" name="reportar_valor" class="btn btn-sm btn-success fw-bold text-nowrap">
-                    <?= $datos_mes['valor_pagado'] > 0 ? 'Actualizar' : 'Guardar' ?>
-                </button>
-            </form>
-            <?php else: ?>
-            <div class="fw-bold fs-5 text-success">
-                <?= $datos_mes['valor_pagado'] > 0 ? '$'.number_format($datos_mes['valor_pagado'], 0, ',', '.') : 'Sin Reportar' ?>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- BARRA DE BÚSQUEDA Y FILTRO EN TIEMPO REAL -->
-    <div class="card shadow-sm mb-3 bg-light border-0">
-        <div class="card-body py-2">
-            <div class="row g-2 align-items-center">
-                <div class="col-md-7">
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                        <input type="text" id="filtroTexto" class="form-control" placeholder="Escribe para buscar por Nombre, Documento o Ficha en tiempo real..." autofocus>
-                    </div>
+                <div class="d-inline-flex align-items-center gap-2 bg-success bg-opacity-10 border border-success border-opacity-25 text-success rounded-pill px-3 py-1 mb-2 small fw-bold">
+                    <i class="bi bi-shield-check"></i> Planilla de Ejecución Oficial
                 </div>
-
-                <div class="col-md-3">
-                    <select id="filtroEstado" class="form-select form-select-sm fw-bold">
-                        <option value="todos">Todos los estados</option>
-                        <option value="Cumple">Solo Cumplen</option>
-                        <option value="Cancelado">Solo Cancelados</option>
-                    </select>
+                <h2 class="fw-extrabold text-dark mb-1">Periodo: <?= htmlspecialchars($datos_mes['mes']) ?></h2>
+                <div class="text-muted fw-bold small">
+                    <i class="bi bi-folder2-open text-primary me-1"></i> Convocatoria: <?= htmlspecialchars($convocatoria_nombre) ?> &bull; 
+                    <i class="bi bi-people-fill text-success ms-2 me-1"></i> Ocupación: <?= $inscritos ?> / <?= $cupos_totales ?>
                 </div>
-
-                <div class="col-md-2">
-                    <button type="button" id="btnLimpiarFiltros" class="btn btn-sm btn-outline-secondary w-100 fw-bold">
-                        <i class="bi bi-eraser-fill"></i> Limpiar
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <!-- Menú Desplegable de Reportes Excel -->
+                <div class="dropdown">
+                    <button class="btn btn-success fw-bold rounded-pill px-4 shadow-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-file-earmark-excel-fill me-1"></i> Reportes Excel
                     </button>
+                    <ul class="dropdown-menu shadow border-0 mt-2">
+                        <li><h6 class="dropdown-header text-uppercase fw-bold" style="font-size: 0.7rem;">Documentos Oficiales</h6></li>
+                        <li><a class="dropdown-item fw-bold text-success" href="exportar_sena.php?mes_id=<?= $mes_id ?>"><i class="bi bi-file-earmark-spreadsheet-fill me-2"></i> Planilla de Pago SENA</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header text-uppercase fw-bold" style="font-size: 0.7rem;">Análisis Interno</h6></li>
+                        <li><a class="dropdown-item fw-bold text-dark" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=todos"><i class="bi bi-people-fill text-secondary me-2"></i> Reporte General</a></li>
+                        <li><a class="dropdown-item fw-bold text-primary" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=cumple"><i class="bi bi-check-circle-fill me-2"></i> Aprobados (Cumplen)</a></li>
+                        <li><a class="dropdown-item fw-bold text-danger" href="exportar.php?mes_id=<?= $mes_id ?>&tipo=cancelados"><i class="bi bi-x-circle-fill me-2"></i> Cancelados</a></li>
+                    </ul>
                 </div>
+
+                <a href="?convocatoria_id=<?= $convocatoria_id ?>" class="btn btn-outline-secondary fw-bold rounded-pill px-4">
+                    <i class="bi bi-arrow-left me-1"></i> Regresar
+                </a>
             </div>
         </div>
-    </div>
 
-    <!-- TABLA DE APRENDICES -->
-    <div class="card shadow-sm border-0 shadow-lg">
-        <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-            <span>Aprendices visibles: <span id="conteoVisibles" class="badge bg-primary fs-6"><?= count($aprendices) ?></span> de <?= $inscritos ?></span>
-            
-            <?php if(!$es_visualizador): ?>
-                <?php if($cupos_disponibles > 0): ?>
-                    <button class="btn btn-sm btn-outline-light fw-bold" onclick="document.getElementById('cajaAgregar').classList.toggle('d-none')">
-                        + Añadir Aprendices (Faltan <?= $cupos_disponibles ?>)
-                    </button>
-                <?php else: ?>
-                    <span class="badge bg-danger fs-6 border border-light shadow-sm">CUPO LLENO (<?= $cupos_totales ?>/<?= $cupos_totales ?>)</span>
-                <?php endif; ?>
-            <?php endif; ?>
-        </div>
-        
-        <?php if(!$es_visualizador && $cupos_disponibles > 0): ?>
-        <div id="cajaAgregar" class="card-body bg-light border-bottom d-none">
-            <div class="row">
-                <!-- Manual -->
-                <div class="col-md-5">
-                    <div class="card shadow-sm border-primary h-100">
-                        <div class="card-header bg-primary text-white fw-bold py-2">Carga Manual</div>
-                        <div class="card-body">
-                            <form method="POST">
-                                <div class="row">
-                                    <div class="col-4 mb-2"><input type="text" name="tipo_doc" class="form-control form-control-sm" placeholder="Tipo" required></div>
-                                    <div class="col-8 mb-2"><input type="number" name="documento" class="form-control form-control-sm" placeholder="Documento" required></div>
-                                    <div class="col-12 mb-2"><input type="text" name="nombre" class="form-control form-control-sm" placeholder="Nombre Completo" required></div>
-                                    <div class="col-12 mb-2"><input type="text" name="ficha" class="form-control form-control-sm" placeholder="N° Ficha" required></div>
-                                </div>
-                                <button type="submit" name="guardar_manual" class="btn btn-primary btn-sm w-100 fw-bold">Agregar 1 Aprendiz</button>
-                            </form>
+        <div class="row g-3 mb-3">
+            <!-- PANEL DE REPORTE FINANCIERO -->
+            <div class="col-lg-5">
+                <div class="card shadow-sm bg-white border-0 h-100">
+                    <div class="card-body d-flex flex-column justify-content-center border-start border-4 border-success rounded-end">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-uppercase fw-bold text-muted" style="font-size: 0.75rem;">Ejecución Financiera del Mes</span>
+                            <i class="bi bi-cash-coin fs-4 text-success opacity-50"></i>
                         </div>
-                    </div>
-                </div>
-                <!-- CSV -->
-                <div class="col-md-7">
-                    <div class="card shadow-sm border-warning h-100">
-                        <div class="card-header bg-warning text-dark fw-bold py-2">Carga Masiva (CSV)</div>
-                        <div class="card-body d-flex flex-column justify-content-center">
-                            <p class="small text-muted mb-3">Sube tu archivo CSV. El sistema procesará aprendices hasta llenar los <b><?= $cupos_disponibles ?> cupos</b> disponibles actualmente.</p>
-                            <form method="POST" enctype="multipart/form-data" class="d-flex gap-2">
-                                <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
-                                <button type="submit" name="subir_csv" class="btn btn-warning btn-sm fw-bold text-nowrap">Subir CSV</button>
-                            </form>
+                        <?php if (!$es_visualizador): ?>
+                        <form method="POST" class="d-flex gap-2">
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-dark fw-bold">$</span>
+                                <input type="number" name="valor_ejecutado" class="form-control fw-bold text-dark" 
+                                       value="<?= $datos_mes['valor_pagado'] > 0 ? $datos_mes['valor_pagado'] : '' ?>" placeholder="Monto total pagado..." required>
+                            </div>
+                            <button type="submit" name="reportar_valor" class="btn btn-success fw-bold text-nowrap px-3 shadow-sm">
+                                <?= $datos_mes['valor_pagado'] > 0 ? 'Actualizar' : 'Reportar' ?>
+                            </button>
+                        </form>
+                        <?php else: ?>
+                        <div class="fw-extrabold fs-3 text-success">
+                            <?= $datos_mes['valor_pagado'] > 0 ? '$'.number_format($datos_mes['valor_pagado'], 2, ',', '.') : '<span class="text-muted fs-5">Pendiente de Reporte</span>' ?>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover table-sm align-middle border-bottom mb-0" id="tablaAprendices" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 950px;">
-                    <colgroup>
-                        <col style="width: 3%;">  <!-- # -->
-                        <col style="width: 6%;">  <!-- Tipo Doc -->
-                        <col style="width: 10%;"> <!-- Documento -->
-                        <col style="width: 21%;"> <!-- Nombre Completo -->
-                        <col style="width: 17%;"> <!-- Ficha y Tiempos -->
-                        <col style="width: 6%;">  <!-- FIC -->
-                        <col style="width: 6%;">  <!-- CTO -->
-                        <col style="width: 6%;">  <!-- V.LAB -->
-                        <col style="width: 7%;">  <!-- E.PROD -->
-                        <col style="width: 13%;"> <!-- Estado Final -->
-                        <?php if(!$es_visualizador): ?><col style="width: 5%;"><?php endif; ?> <!-- Eliminar -->
-                    </colgroup>
-                    <thead class="table-light">
-                        <tr>
-                            <th class="text-center text-muted px-1">#</th>
-                            <th class="text-center px-1">Tipo Doc</th>
-                            <th>Documento</th>
-                            <th>Nombre Completo</th>
-                            <th>Ficha y Tiempos</th>
-                            <th class="text-center text-nowrap px-1" title="Apoyo FIC Automático">FIC ⚡</th>
-                            <th class="text-center text-nowrap px-1" title="¿Tiene Contrato?">CONTRATO</th>
-                            <th class="text-center text-nowrap px-1" title="¿Tiene Vínculo Laboral?">V.LABORAL</th>
-                            <th class="text-center text-nowrap px-1 text-success" title="¿Ya inició Etapa Productiva?">E.PRODUCTIVA</th>
-                            <th class="px-2">Estado Final</th>
-                            <?php if(!$es_visualizador): ?><th class="text-center px-1"><i class="bi bi-trash text-danger"></i></th><?php endif; ?>
-                        </tr>
-                    </thead>
-                    <tbody id="tbodyAprendices">
-                        <?php if(count($aprendices) === 0): ?>
-                            <tr id="filaSinDatos"><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted">No hay aprendices registrados en este mes.</td></tr>
                         <?php endif; ?>
-                        
-                        <?php 
-                        $item = 1; 
-                        $hoy = new DateTime(); 
-                        $hoy->setTime(0,0,0);
-                        
-                        foreach ($aprendices as $a): 
-                            
-                            $estado_calculado = 'Cumple';
-                            $novedad_texto = 'Sin novedad';
-                            $alerta_fechas = '';
+                    </div>
+                </div>
+            </div>
 
-                            // Cálculos de Tiempo (30 días calendario)
-                            if (!empty($a['fecha_fin_lectiva'])) {
-                                $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
-                                $fecha_limite = clone $fin_lectiva;
-                                $fecha_limite->modify('+30 days');
-                                $fecha_limite->setTime(0,0,0);
-                                
-                                $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');
-
-                                if ($a['etapa_productiva'] == 'NO') {
-                                    if ($dias_restantes < 0) {
-                                        $estado_calculado = 'Cancelado';
-                                        $novedad_texto = 'Fin de lectiva sin E. Productiva';
-                                        $alerta_fechas = "<span class='text-danger fw-bold'><i class='bi bi-alarm-fill'></i> Vencido hace ".abs($dias_restantes)." días</span>";
-                                    } elseif ($dias_restantes <= 10) {
-                                        $alerta_fechas = "<span class='text-danger fw-bold'><i class='bi bi-clock-history'></i> Faltan $dias_restantes días</span>";
-                                    } else {
-                                        $alerta_fechas = "<span class='text-muted'><i class='bi bi-calendar'></i> Faltan $dias_restantes días</span>";
-                                    }
-                                } else {
-                                    $alerta_fechas = "<span class='text-success fw-bold'><i class='bi bi-shield-check'></i> Salvado por E.P.</span>";
-                                }
-                            }
-
-                            // Reglas Excluyentes
-                            if ($a['tiene_fic_global'] == 'SI') {
-                                $estado_calculado = 'Cancelado';
-                                $novedad_texto = 'Cancelado por FIC Automático';
-                            } elseif ($a['contrato_aprendizaje'] == 'SI') {
-                                $estado_calculado = 'Cancelado';
-                                $novedad_texto = 'Cancelado por Contrato';
-                            } elseif ($a['vinculo_laboral'] == 'SI') {
-                                $estado_calculado = 'Cancelado';
-                                $novedad_texto = 'Cancelado por Vínculo Laboral';
-                            }
-
-                            // Sincronización silenciosa con la BD
-                            if (!$es_visualizador && $a['estado_seguimiento'] !== $estado_calculado) {
-                                $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?")->execute([$estado_calculado, $a['id']]);
-                            }
-                        ?>
-                        
-                        <tr id="fila_<?= $a['id'] ?>" 
-                            class="fila-aprendiz <?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-25' : '' ?>"
-                            data-estado="<?= $estado_calculado ?>"
-                            data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'])) ?>">
-
-                            <td class="text-center fw-bold text-muted px-1">
-                                <?= $item++ ?>
-                                <?php if(!$es_visualizador): ?>
-                                <form method="POST" id="form_<?= $a['id'] ?>" action="#fila_<?= $a['id'] ?>" style="display:none;">
-                                    <input type="hidden" name="evaluar_rapido" value="1">
-                                    <input type="hidden" name="aprendiz_id" value="<?= $a['id'] ?>">
-                                </form>
-                                <?php endif; ?>
-                            </td>
-
-                            <td class="text-center px-1"><span class="badge bg-light text-dark border"><?= htmlspecialchars($a['tipo_documento']) ?></span></td>
-
-                            <td class="fw-bold text-nowrap"><?= htmlspecialchars($a['documento']) ?></td>
-
-                            <td class="fw-bold text-dark text-uppercase lh-sm text-break"><?= htmlspecialchars($a['nombre']) ?></td>
-                            
-                            <td class="lh-sm py-2">
-                                <div class="d-flex flex-wrap gap-1 mb-1">
-                                    <span class="badge bg-secondary">Ficha: <?= htmlspecialchars($a['ficha']) ?></span>
-                                    <?php if(!empty($a['fecha_fin_lectiva'])): ?>
-                                        <span class="badge bg-info text-dark fw-bold border border-dark">Fin: <?= htmlspecialchars($a['fecha_fin_lectiva']) ?></span>
-                                    <?php else: ?>
-                                        <span class="badge bg-warning text-dark">Sin Ficha</span>
-                                    <?php endif; ?>
+            <!-- BARRA DE BÚSQUEDA Y FILTRO EN TIEMPO REAL -->
+            <div class="col-lg-7">
+                <div class="card shadow-sm bg-white border-0 h-100">
+                    <div class="card-body d-flex flex-column justify-content-center">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-7">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" id="filtroTexto" class="form-control border-start-0" placeholder="Buscar por Nombre, Documento o Ficha..." autofocus>
                                 </div>
-                                <?php if(!empty($a['fecha_fin_lectiva'])): ?>
-                                    <div style="font-size: 0.9em;"><?= $alerta_fechas ?></div>
-                                <?php endif; ?>
-                            </td>
-                            
-                            <!-- FIC Automático -->
-                            <td class="text-center px-1">
-                                <input class="form-check-input <?= $a['tiene_fic_global'] == 'SI' ? 'bg-danger border-danger' : 'border-dark bg-secondary opacity-50' ?> shadow-sm m-0" 
-                                       style="width:1.25rem; height:1.25rem; cursor:not-allowed;" 
-                                       type="checkbox" 
-                                       <?= $a['tiene_fic_global'] == 'SI' ? 'checked' : '' ?> 
-                                       disabled>
-                            </td>
+                            </div>
+                            <div class="col-md-5 d-flex gap-2">
+                                <select id="filtroEstado" class="form-select fw-bold text-dark">
+                                    <option value="todos">Todos los estados</option>
+                                    <option value="Cumple">Aprobados</option>
+                                    <option value="Cancelado">Cancelados</option>
+                                </select>
+                                <button type="button" id="btnLimpiarFiltros" class="btn btn-light border fw-bold text-secondary px-3" title="Limpiar filtros">
+                                    <i class="bi bi-eraser-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-                            <td class="text-center px-1">
-                                <input class="form-check-input border-dark shadow-sm m-0" style="width:1.25rem; height:1.25rem; cursor:pointer;" type="checkbox" name="contrato" value="SI" form="form_<?= $a['id'] ?>" <?= $a['contrato_aprendizaje'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
-                            </td>
-                            <td class="text-center px-1">
-                                <input class="form-check-input border-dark shadow-sm m-0" style="width:1.25rem; height:1.25rem; cursor:pointer;" type="checkbox" name="vinculo" value="SI" form="form_<?= $a['id'] ?>" <?= $a['vinculo_laboral'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
-                            </td>
-                            <td class="text-center px-1">
-                                <input class="form-check-input border-success shadow-sm m-0" style="width:1.25rem; height:1.25rem; cursor:pointer;" type="checkbox" name="etapa_productiva" value="SI" form="form_<?= $a['id'] ?>" <?= $a['etapa_productiva'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
-                            </td>
-                            
-                            <td class="lh-sm px-2">
-                                <?php if($estado_calculado == 'Cumple'): ?>
-                                    <span class="badge bg-success shadow-sm mb-1 px-2 py-1"><i class="bi bi-check-circle"></i> CUMPLE</span>
-                                <?php else: ?>
-                                    <span class="badge bg-danger shadow-sm mb-1 px-2 py-1"><i class="bi bi-x-circle"></i> CANCELADO</span>
-                                <?php endif; ?>
-                                
-                                <div class="small fw-bold <?= $estado_calculado == 'Cancelado' ? 'text-danger' : 'text-success' ?>" style="line-height: 1.1;">
-                                    <?= $novedad_texto ?>
-                                </div>
-                            </td>
-
-                            <!-- Eliminar (Solo para Gestor) -->
-                            <?php if(!$es_visualizador): ?>
-                            <td class="text-center px-1">
-                                <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar a <?= addslashes($a['nombre']) ?>? Esto liberará su cupo en este mes.');">
-                                    <input type="hidden" name="id_eliminar" value="<?= $a['id'] ?>">
-                                    <button type="submit" name="eliminar_aprendiz" class="btn btn-sm btn-outline-danger border-0" title="Eliminar y liberar cupo">
-                                        <i class="bi bi-trash3-fill fs-6"></i>
-                                    </button>
+        <!-- TABLA DE APRENDICES -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-dark text-white fw-bold d-flex flex-column flex-md-row justify-content-between align-items-md-center py-3">
+                <div class="mb-2 mb-md-0">
+                    <i class="bi bi-card-checklist text-success me-2"></i> Evaluación de Aprendices 
+                    <span class="ms-2 badge bg-light text-dark opacity-75"><span id="conteoVisibles"><?= count($aprendices) ?></span> listados</span>
+                </div>
+                
+                <?php if(!$es_visualizador): ?>
+                    <?php if($cupos_disponibles > 0): ?>
+                        <button class="btn btn-sm btn-success fw-bold rounded-pill px-3 shadow-sm border border-light border-opacity-25" onclick="document.getElementById('cajaAgregar').classList.toggle('d-none')">
+                            <i class="bi bi-person-plus-fill me-1"></i> Añadir Aprendices (Faltan <?= $cupos_disponibles ?>)
+                        </button>
+                    <?php else: ?>
+                        <span class="badge bg-danger fs-6 border border-light shadow-sm px-3 py-2 rounded-pill"><i class="bi bi-lock-fill me-1"></i> CUPO LLENO</span>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+            
+            <?php if(!$es_visualizador && $cupos_disponibles > 0): ?>
+            <div id="cajaAgregar" class="card-body bg-light border-bottom d-none p-4">
+                <div class="row g-4">
+                    <!-- Manual -->
+                    <div class="col-md-5">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-header bg-white border-bottom fw-bold py-3 text-dark"><i class="bi bi-person-lines-fill text-primary me-2"></i> Registro Manual</div>
+                            <div class="card-body">
+                                <form method="POST">
+                                    <div class="row g-2">
+                                        <div class="col-4 mb-2"><input type="text" name="tipo_doc" class="form-control bg-light" placeholder="Tipo" required></div>
+                                        <div class="col-8 mb-2"><input type="number" name="documento" class="form-control bg-light" placeholder="Documento" required></div>
+                                        <div class="col-12 mb-2"><input type="text" name="nombre" class="form-control bg-light text-uppercase" placeholder="Nombre Completo" required></div>
+                                        <div class="col-12 mb-3"><input type="text" name="ficha" class="form-control bg-light" placeholder="N° Ficha" required></div>
+                                    </div>
+                                    <button type="submit" name="guardar_manual" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill"><i class="bi bi-plus-lg me-1"></i> Agregar 1 Aprendiz</button>
                                 </form>
-                            </td>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- CSV -->
+                    <div class="col-md-7">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-header bg-white border-bottom fw-bold py-3 text-dark"><i class="bi bi-filetype-csv text-warning me-2"></i> Carga de "Aprobados" (CSV)</div>
+                            <div class="card-body d-flex flex-column justify-content-center">
+                                <div class="d-flex align-items-start mb-4">
+                                    <i class="bi bi-info-circle-fill text-primary fs-4 me-3 mt-1"></i>
+                                    <p class="small text-muted mb-0 lh-sm">
+                                        Sube el archivo <b>CSV de Aprobados</b> que exportaste del mes anterior. El sistema extraerá automáticamente las cédulas, nombres y fichas, ignorando celdas rotas o duplicados.
+                                    </p>
+                                </div>
+                                <form method="POST" enctype="multipart/form-data" class="d-flex gap-2">
+                                    <input type="file" name="archivo_csv" class="form-control bg-light border-warning" accept=".csv" required>
+                                    <button type="submit" name="subir_csv" class="btn btn-warning fw-bold text-nowrap shadow-sm px-4 rounded-pill text-dark"><i class="bi bi-cloud-arrow-up-fill me-1"></i> Subir y Cruzar CSV</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover table-sm align-middle mb-0" id="tablaAprendices" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 1000px;">
+                        <colgroup>
+                            <col style="width: 3%;">  <!-- # -->
+                            <col style="width: 6%;">  <!-- Tipo Doc -->
+                            <col style="width: 9%;">  <!-- Documento -->
+                            <col style="width: 19%;"> <!-- Nombre Completo -->
+                            <col style="width: 16%;"> <!-- Ficha y Tiempos -->
+                            <col style="width: 8%;">  <!-- Cruces FIC / REG -->
+                            <col style="width: 7%;">  <!-- CTO -->
+                            <col style="width: 7%;">  <!-- V.LAB -->
+                            <col style="width: 8%;">  <!-- E.PROD -->
+                            <col style="width: 13%;"> <!-- Estado Final -->
+                            <?php if(!$es_visualizador): ?><col style="width: 4%;"><?php endif; ?> <!-- Eliminar -->
+                        </colgroup>
+                        <thead class="table-light sticky-top shadow-sm" style="z-index: 10;">
+                            <tr>
+                                <th class="text-center text-muted px-1 py-3 border-bottom">#</th>
+                                <th class="text-center px-1 py-3 border-bottom">Tipo Doc</th>
+                                <th class="py-3 border-bottom">Documento</th>
+                                <th class="py-3 border-bottom">Nombre Completo</th>
+                                <th class="py-3 border-bottom">Ficha Académica</th>
+                                <th class="text-center text-nowrap px-1 py-3 border-bottom" title="Cruces Automáticos Institucionales">CRUCES ⚡</th>
+                                <th class="text-center text-nowrap px-1 py-3 border-bottom" title="¿Tiene Contrato?">CONTRATO</th>
+                                <th class="text-center text-nowrap px-1 py-3 border-bottom" title="¿Tiene Vínculo Laboral?">V.LABORAL</th>
+                                <th class="text-center text-nowrap px-1 text-success py-3 border-bottom" title="¿Ya inició Etapa Productiva?">E.PRODUC.</th>
+                                <th class="px-2 py-3 border-bottom">Resultado Final</th>
+                                <?php if(!$es_visualizador): ?><th class="text-center px-1 py-3 border-bottom"><i class="bi bi-trash-fill text-danger"></i></th><?php endif; ?>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyAprendices">
+                            <?php if(count($aprendices) === 0): ?>
+                                <tr id="filaSinDatos"><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-2 d-block mb-2"></i> No hay aprendices registrados en este mes.</td></tr>
                             <?php endif; ?>
+                            
+                            <?php 
+                            $item = 1; 
+                            $hoy = new DateTime(); 
+                            $hoy->setTime(0,0,0);
+                            
+                            foreach ($aprendices as $a): 
+                                
+                                $estado_calculado = 'Cumple';
+                                $novedad_texto = 'Sin novedad';
+                                $alerta_fechas = '';
 
-                        </tr>
-                        <?php endforeach; ?>
-                        
-                        <tr id="sinCoincidencias" style="display: none;">
-                            <td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-4 text-muted fw-bold">
-                                <i class="bi bi-search me-1"></i> No se encontraron aprendices que coincidan con la búsqueda.
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                                // Cálculos de Tiempo (30 días calendario)
+                                if (!empty($a['fecha_fin_lectiva'])) {
+                                    $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
+                                    $fecha_limite = clone $fin_lectiva;
+                                    $fecha_limite->modify('+30 days');
+                                    $fecha_limite->setTime(0,0,0);
+                                    
+                                    $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');
+
+                                    if ($a['etapa_productiva'] == 'NO') {
+                                        if ($dias_restantes < 0) {
+                                            $estado_calculado = 'Cancelado';
+                                            $novedad_texto = 'Fin de lectiva sin E. Productiva';
+                                            $alerta_fechas = "<span class='text-danger fw-bold'><i class='bi bi-alarm-fill'></i> Vencido hace ".abs($dias_restantes)." días</span>";
+                                        } elseif ($dias_restantes <= 10) {
+                                            $alerta_fechas = "<span class='text-danger fw-bold'><i class='bi bi-clock-history'></i> Faltan $dias_restantes días</span>";
+                                        } else {
+                                            $alerta_fechas = "<span class='text-muted'><i class='bi bi-calendar'></i> Faltan $dias_restantes días</span>";
+                                        }
+                                    } else {
+                                        $alerta_fechas = "<span class='text-success fw-bold bg-success bg-opacity-10 px-2 py-1 rounded'><i class='bi bi-shield-check'></i> Salvado por E.P.</span>";
+                                    }
+                                }
+
+                                // REGLAS EXCLUYENTES AUTOMÁTICAS
+                                if ($a['tiene_fic_global'] == 'SI') {
+                                    $estado_calculado = 'Cancelado';
+                                    $novedad_texto = 'Cruce FIC Automático';
+                                } elseif ($es_transporte && $a['activo_en_regular'] == 'SI') {
+                                    $estado_calculado = 'Cancelado';
+                                    $novedad_texto = 'Activo en Apoyo Regular';
+                                } elseif ($a['contrato_aprendizaje'] == 'SI') {
+                                    $estado_calculado = 'Cancelado';
+                                    $novedad_texto = 'Contrato de Aprendizaje';
+                                } elseif ($a['vinculo_laboral'] == 'SI') {
+                                    $estado_calculado = 'Cancelado';
+                                    $novedad_texto = 'Vínculo Laboral Activo';
+                                }
+
+                                // Sincronización silenciosa con la BD
+                                if (!$es_visualizador && $a['estado_seguimiento'] !== $estado_calculado) {
+                                    $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?")->execute([$estado_calculado, $a['id']]);
+                                }
+                            ?>
+                            
+                            <tr id="fila_<?= $a['id'] ?>" 
+                                class="fila-aprendiz <?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-10' : '' ?>"
+                                data-estado="<?= $estado_calculado ?>"
+                                data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'])) ?>">
+
+                                <td class="text-center fw-bold text-muted px-1 align-middle">
+                                    <?= $item++ ?>
+                                    <?php if(!$es_visualizador): ?>
+                                    <form method="POST" id="form_<?= $a['id'] ?>" action="#fila_<?= $a['id'] ?>" style="display:none;">
+                                        <input type="hidden" name="evaluar_rapido" value="1">
+                                        <input type="hidden" name="aprendiz_id" value="<?= $a['id'] ?>">
+                                    </form>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td class="text-center px-1 align-middle"><span class="badge bg-light text-dark border px-2 py-1"><?= htmlspecialchars($a['tipo_documento']) ?></span></td>
+
+                                <td class="fw-bold text-nowrap text-dark align-middle"><?= htmlspecialchars($a['documento']) ?></td>
+
+                                <td class="fw-bold text-dark lh-sm text-break align-middle" style="font-size: 0.95em;"><?= htmlspecialchars($a['nombre']) ?></td>
+                                
+                                <td class="lh-sm py-2 align-middle">
+                                    <div class="d-flex flex-column gap-1">
+                                        <span class="badge bg-secondary bg-opacity-10 text-dark border text-start w-100"><i class="bi bi-hash text-muted"></i> <?= htmlspecialchars($a['ficha']) ?></span>
+                                        <?php if(!empty($a['fecha_fin_lectiva'])): ?>
+                                            <span class="badge bg-info bg-opacity-10 text-dark fw-bold border text-start w-100"><i class="bi bi-flag-fill text-info me-1"></i> Fin: <?= htmlspecialchars($a['fecha_fin_lectiva']) ?></span>
+                                            <div class="mt-1" style="font-size: 0.9em;"><?= $alerta_fechas ?></div>
+                                        <?php else: ?>
+                                            <span class="badge bg-warning bg-opacity-10 text-dark border text-start w-100"><i class="bi bi-exclamation-triangle-fill text-warning"></i> Sin Ficha</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                                
+                                <!-- CRUCES AUTOMÁTICOS -->
+                                <td class="text-center px-1 align-middle">
+                                    <div class="d-flex flex-column align-items-center gap-1">
+                                        <?php if ($a['tiene_fic_global'] == 'SI'): ?>
+                                            <span class="badge bg-danger shadow-sm border border-danger fw-bold" style="font-size: 0.65rem;" title="Cruce Positivo con Base FIC"><i class="bi bi-cone-striped"></i> FIC</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-light text-muted border" style="font-size: 0.65rem;"><i class="bi bi-dash"></i> FIC</span>
+                                        <?php endif; ?>
+
+                                        <?php if ($es_transporte && $a['activo_en_regular'] == 'SI'): ?>
+                                            <span class="badge bg-danger shadow-sm border border-danger fw-bold mt-1" style="font-size: 0.65rem;" title="El aprendiz ya recibe Apoyo Regular"><i class="bi bi-exclamation-triangle-fill"></i> REGULAR</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+
+                                <td class="text-center px-1 align-middle">
+                                    <div class="form-check d-flex justify-content-center m-0">
+                                        <input class="form-check-input border-secondary shadow-sm" style="width:1.4rem; height:1.4rem; cursor:pointer;" type="checkbox" name="contrato" value="SI" form="form_<?= $a['id'] ?>" <?= $a['contrato_aprendizaje'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
+                                    </div>
+                                </td>
+                                <td class="text-center px-1 align-middle">
+                                    <div class="form-check d-flex justify-content-center m-0">
+                                        <input class="form-check-input border-secondary shadow-sm" style="width:1.4rem; height:1.4rem; cursor:pointer;" type="checkbox" name="vinculo" value="SI" form="form_<?= $a['id'] ?>" <?= $a['vinculo_laboral'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
+                                    </div>
+                                </td>
+                                <td class="text-center px-1 align-middle">
+                                    <div class="form-check d-flex justify-content-center m-0">
+                                        <input class="form-check-input border-success shadow-sm" style="width:1.4rem; height:1.4rem; cursor:pointer;" type="checkbox" name="etapa_productiva" value="SI" form="form_<?= $a['id'] ?>" <?= $a['etapa_productiva'] == 'SI' ? 'checked' : '' ?> <?= $es_visualizador ? 'disabled' : '' ?> onchange="document.getElementById('form_<?= $a['id'] ?>').submit();">
+                                    </div>
+                                </td>
+                                
+                                <td class="lh-sm px-2 align-middle">
+                                    <?php if($estado_calculado == 'Cumple'): ?>
+                                        <span class="badge bg-success shadow-sm mb-1 px-3 py-2 rounded-pill"><i class="bi bi-check-circle-fill me-1"></i> APROBADO</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-danger shadow-sm mb-1 px-3 py-2 rounded-pill"><i class="bi bi-x-circle-fill me-1"></i> CANCELADO</span>
+                                    <?php endif; ?>
+                                    
+                                    <div class="small fw-bold mt-1 <?= $estado_calculado == 'Cancelado' ? 'text-danger' : 'text-success' ?>" style="line-height: 1.15; font-size: 0.78rem;">
+                                        <?= $novedad_texto ?>
+                                    </div>
+                                </td>
+
+                                <!-- Eliminar (Solo para Gestor) -->
+                                <?php if(!$es_visualizador): ?>
+                                <td class="text-center px-1 align-middle">
+                                    <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar a <?= addslashes($a['nombre']) ?>? Esto liberará su cupo en este mes.');">
+                                        <input type="hidden" name="id_eliminar" value="<?= $a['id'] ?>">
+                                        <button type="submit" name="eliminar_aprendiz" class="btn btn-sm btn-light border text-danger rounded-circle shadow-sm" style="width: 32px; height: 32px; padding: 0;" title="Eliminar y liberar cupo">
+                                            <i class="bi bi-trash3-fill"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                <?php endif; ?>
+
+                            </tr>
+                            <?php endforeach; ?>
+                            
+                            <tr id="sinCoincidencias" style="display: none;">
+                                <td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted fw-bold bg-light">
+                                    <i class="bi bi-search fs-2 d-block mb-2 opacity-50"></i> No se encontraron aprendices que coincidan con los filtros.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -555,7 +639,7 @@ if (!$mes_id) {
 
         function filtrarTabla() {
             const texto = inputTexto.value.toLowerCase().trim();
-            const estado = selectEstado.value;
+            const selectVal = selectEstado.value;
             let visibles = 0;
 
             filas.forEach(function (fila) {
@@ -563,7 +647,9 @@ if (!$mes_id) {
                 const dataEstado = fila.getAttribute('data-estado') || '';
 
                 const coincideTexto = texto === '' || dataBusqueda.includes(texto);
-                const coincideEstado = estado === 'todos' || dataEstado === estado;
+                
+                // Comparación directa con el estado (Cumple / Cancelado)
+                const coincideEstado = (selectVal === 'todos' || dataEstado === selectVal);
 
                 if (coincideTexto && coincideEstado) {
                     fila.style.display = '';
@@ -582,11 +668,9 @@ if (!$mes_id) {
             }
         }
 
-        // Eventos en vivo: mientras se escribe (input) y cuando se cambia el select (change)
         inputTexto.addEventListener('input', filtrarTabla);
         selectEstado.addEventListener('change', filtrarTabla);
 
-        // Botón limpiar
         btnLimpiar.addEventListener('click', function () {
             inputTexto.value = '';
             selectEstado.value = 'todos';

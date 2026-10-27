@@ -2,189 +2,255 @@
 require_once '../../config/database.php';
 require_once '../../includes/header.php';
 
-$es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
+$rol_actual = $_SESSION['rol'] ?? 'visualizador';
+$apoyo_activo_id = $_SESSION['apoyo_activo_id'] ?? 1;
 
-if ($es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    echo "<div class='alert alert-danger fw-bold'>Acceso denegado: El rol visualizador no puede modificar convocatorias.</div>";
-} else {
-    // A) CREAR CONVOCATORIA
-    if (isset($_POST['crear_convocatoria'])) {
-        $nombre = strtoupper(trim($_POST['nombre']));
-        $cupos = (int)$_POST['cupos'];
-        $presupuesto = floatval($_POST['presupuesto']);
-        
-        if (!empty($nombre) && $cupos > 0) {
-            try {
-                $stmt = $pdo->prepare("INSERT INTO convocatorias (nombre, cupos, presupuesto) VALUES (?, ?, ?)");
-                $stmt->execute([$nombre, $cupos, $presupuesto]);
-                echo "<div class='alert alert-success mt-3 fw-bold'><i class='bi bi-check-circle-fill'></i> Convocatoria creada exitosamente.</div>";
-            } catch (PDOException $e) {
-                echo "<div class='alert alert-warning mt-3 fw-bold'>Error: Ya existe una convocatoria con ese nombre.</div>";
-            }
-        }
+$es_visualizador = ($rol_actual === 'visualizador');
+
+$mensaje = "";
+
+// AUTO-VERIFICACIÓN DE LA COLUMNA PRESUPUESTO
+try {
+    $checkCol = $pdo->query("SHOW COLUMNS FROM convocatorias LIKE 'presupuesto'");
+    if ($checkCol && $checkCol->rowCount() == 0) {
+        $pdo->exec("ALTER TABLE convocatorias ADD COLUMN presupuesto DECIMAL(15, 2) DEFAULT 0 AFTER cupos");
     }
+} catch (PDOException $e) {
+    // Continuar
+}
 
-    // B) ACTUALIZAR CONVOCATORIA
-    if (isset($_POST['actualizar_convocatoria'])) {
-        $id = $_POST['id_convocatoria'];
-        $nombre = strtoupper(trim($_POST['nombre']));
-        $cupos = (int)$_POST['cupos'];
-        $presupuesto = floatval($_POST['presupuesto']);
+// 1. CREAR CONVOCATORIA
+if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_convocatoria'])) {
+    $nombre = trim($_POST['nombre']);
+    $cupos = (int)$_POST['cupos'];
+    $presupuesto = !empty($_POST['presupuesto']) ? floatval(str_replace(['$', '.', ','], ['', '', '.'], $_POST['presupuesto'])) : 0;
+    $apoyo_id_seleccionado = (int)$_POST['apoyo_id'];
 
-        if (!empty($nombre) && $cupos > 0) {
-            try {
-                $stmt = $pdo->prepare("UPDATE convocatorias SET nombre = ?, cupos = ?, presupuesto = ? WHERE id = ?");
-                $stmt->execute([$nombre, $cupos, $presupuesto, $id]);
-                echo "<div class='alert alert-success mt-3 fw-bold'><i class='bi bi-check-circle-fill'></i> Convocatoria actualizada correctamente.</div>";
-                // Limpiar modo edición tras guardar
-                echo "<script>window.location.href = 'index.php';</script>";
-                exit;
-            } catch (PDOException $e) {
-                echo "<div class='alert alert-warning mt-3 fw-bold'>Error: Ya existe otra convocatoria con ese nombre.</div>";
-            }
-        }
-    }
-
-    // C) ELIMINAR CONVOCATORIA
-    if (isset($_POST['eliminar_convocatoria'])) {
-        $id = $_POST['id_convocatoria'];
+    if (!empty($nombre) && $cupos > 0) {
         try {
-            $stmt = $pdo->prepare("DELETE FROM convocatorias WHERE id = ?");
-            $stmt->execute([$id]);
-            echo "<div class='alert alert-success mt-3 fw-bold'><i class='bi bi-trash3-fill'></i> Convocatoria eliminada correctamente.</div>";
+            $stmt = $pdo->prepare("INSERT INTO convocatorias (apoyo_id, nombre, cupos, presupuesto) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$apoyo_id_seleccionado, $nombre, $cupos, $presupuesto]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Convocatoria creada correctamente con su presupuesto.</div>";
         } catch (PDOException $e) {
-            echo "<div class='alert alert-danger mt-3 fw-bold'>No se puede eliminar porque tiene meses o aprendices asociados.</div>";
+            $mensaje = "<div class='alert alert-danger fw-bold'>Error al crear la convocatoria: " . $e->getMessage() . "</div>";
         }
+    } else {
+        $mensaje = "<div class='alert alert-danger fw-bold'>Por favor completa los campos obligatorios correctamente.</div>";
     }
 }
 
-// Cargar datos para edición si se solicitó
-$edit_mode = false;
-$edit_data = null;
-if (isset($_GET['editar'])) {
-    $id_editar = $_GET['editar'];
-    $stmtEdit = $pdo->prepare("SELECT * FROM convocatorias WHERE id = ?");
-    $stmtEdit->execute([$id_editar]);
-    $edit_data = $stmtEdit->fetch(PDO::FETCH_ASSOC);
-    if ($edit_data) {
-        $edit_mode = true;
+// 2. EDITAR CONVOCATORIA
+if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_convocatoria'])) {
+    $id = (int)$_POST['convocatoria_id'];
+    $nombre = trim($_POST['nombre']);
+    $cupos = (int)$_POST['cupos'];
+    $presupuesto = !empty($_POST['presupuesto']) ? floatval(str_replace(['$', '.', ','], ['', '', '.'], $_POST['presupuesto'])) : 0;
+    $apoyo_id_seleccionado = (int)$_POST['apoyo_id'];
+
+    if (!empty($nombre) && $cupos > 0 && $id > 0) {
+        try {
+            $stmt = $pdo->prepare("UPDATE convocatorias SET apoyo_id = ?, nombre = ?, cupos = ?, presupuesto = ? WHERE id = ?");
+            $stmt->execute([$apoyo_id_seleccionado, $nombre, $cupos, $presupuesto, $id]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Convocatoria actualizada correctamente.</div>";
+        } catch (PDOException $e) {
+            $mensaje = "<div class='alert alert-danger fw-bold'>Error al actualizar la convocatoria: " . $e->getMessage() . "</div>";
+        }
+    } else {
+        $mensaje = "<div class='alert alert-danger fw-bold'>Por favor completa los campos correctamente.</div>";
     }
 }
 
-// Consultar todas las convocatorias
-$stmtList = $pdo->query("SELECT * FROM convocatorias ORDER BY id DESC");
-$convocatorias = $stmtList->fetchAll(PDO::FETCH_ASSOC);
+// 3. OBTENER TIPOS DE APOYO
+$stmtApoyosList = $pdo->query("SELECT id, nombre FROM tipos_apoyo WHERE estado = 'activo' ORDER BY id ASC");
+$tipos_apoyo_list = $stmtApoyosList->fetchAll(PDO::FETCH_ASSOC);
+
+// 4. OBTENER CONVOCATORIAS FILTRADAS
+$stmtConvs = $pdo->prepare("
+    SELECT c.*, t.nombre as nombre_apoyo 
+    FROM convocatorias c 
+    LEFT JOIN tipos_apoyo t ON c.apoyo_id = t.id 
+    WHERE c.apoyo_id = ? 
+    ORDER BY c.id DESC
+");
+$stmtConvs->execute([$apoyo_activo_id]);
+$convocatorias = $stmtConvs->fetchAll(PDO::FETCH_ASSOC);
+
+$stmtApoyoNom = $pdo->prepare("SELECT nombre FROM tipos_apoyo WHERE id = ?");
+$stmtApoyoNom->execute([$apoyo_activo_id]);
+$nombre_apoyo_actual = $stmtApoyoNom->fetchColumn() ?: 'Apoyo';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="mb-0"><i class="bi bi-folder-fill text-success"></i> Gestión de Convocatorias</h2>
-        <p class="text-muted mb-0">Administra los cupos y presupuestos asignado</p>
-    </div>
-</div>
-
-<div class="row mb-4">
-    <?php if (!$es_visualizador): ?>
-    <!-- Formulario Dinámico: Registrar o Editar Convocatoria -->
-    <div class="col-md-4">
-        <div class="card shadow-sm <?= $edit_mode ? 'border-warning' : 'border-success' ?> h-100">
-            <div class="card-header <?= $edit_mode ? 'bg-warning text-dark' : 'bg-success text-white' ?> fw-bold d-flex justify-content-between align-items-center">
-                <span><?= $edit_mode ? 'Editar Convocatoria' : 'Crear Nueva Convocatoria' ?></span>
-                <?php if ($edit_mode): ?>
-                    <a href="index.php" class="btn btn-sm btn-dark py-0 px-2" style="font-size: 0.75em;">Cancelar</a>
-                <?php endif; ?>
-            </div>
-            <div class="card-body">
-                <form method="POST">
-                    <?php if ($edit_mode): ?>
-                        <input type="hidden" name="id_convocatoria" value="<?= $edit_data['id'] ?>">
-                    <?php endif; ?>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">Nombre de la Convocatoria</label>
-                        <input type="text" name="nombre" class="form-control form-control-sm text-uppercase" placeholder="Ej: CONVOCATORIA 01 - 2026" value="<?= $edit_mode ? htmlspecialchars($edit_data['nombre']) : '' ?>" required autocomplete="off">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">Cupos Totales</label>
-                        <input type="number" name="cupos" class="form-control form-control-sm" placeholder="Ej: 50" value="<?= $edit_mode ? $edit_data['cupos'] : '' ?>" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">Presupuesto Asignado ($)</label>
-                        <input type="number" step="0.01" name="presupuesto" class="form-control form-control-sm" placeholder="Ej: 15000000" value="<?= $edit_mode ? $edit_data['presupuesto'] : '' ?>">
-                    </div>
-
-                    <?php if ($edit_mode): ?>
-                        <button type="submit" name="actualizar_convocatoria" class="btn btn-warning btn-sm w-100 fw-bold text-dark"><i class="bi bi-pencil-square"></i> Guardar Cambios</button>
-                    <?php else: ?>
-                        <button type="submit" name="crear_convocatoria" class="btn btn-success btn-sm w-100 fw-bold"><i class="bi bi-plus-circle-fill"></i> Guardar Convocatoria</button>
-                    <?php endif; ?>
-                </form>
-            </div>
+<div class="container-fluid px-4 py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="bi bi-folder-fill text-success"></i> Gestión de Convocatorias</h2>
+            <p class="text-muted mb-0">Administra las convocatorias activas para el apoyo: <span class="badge bg-success"><?= htmlspecialchars($nombre_apoyo_actual) ?></span></p>
         </div>
     </div>
-    <?php endif; ?>
 
-    <!-- Listado de Convocatorias -->
-    <div class="<?= $es_visualizador ? 'col-md-12' : 'col-md-8' ?>">
-        <div class="card shadow-sm border-0 shadow-lg">
-            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span>Convocatorias Registradas</span>
-                <span class="badge bg-success fs-6 rounded-pill"><?= count($convocatorias) ?> Total</span>
+    <?= $mensaje ?>
+
+    <div class="row">
+        <?php if (!$es_visualizador): ?>
+        <!-- Formulario de Creación -->
+        <div class="col-md-4">
+            <div class="card shadow-sm border-success mb-4">
+                <div class="card-header bg-success text-white fw-bold"><i class="bi bi-plus-square-fill"></i> Nueva Convocatoria</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Asignar a Apoyo Socioeconómico:</label>
+                            <select name="apoyo_id" class="form-select fw-bold border-success" required>
+                                <?php foreach ($tipos_apoyo_list as $ta): ?>
+                                    <option value="<?= $ta['id'] ?>" <?= $ta['id'] == $apoyo_activo_id ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($ta['nombre']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Nombre de la Convocatoria</label>
+                            <input type="text" name="nombre" class="form-control" placeholder="Ej: Convocatoria 01 - 2026" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Cupos Totales</label>
+                            <input type="number" name="cupos" class="form-control" placeholder="Ej: 100" min="1" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Presupuesto Asignado</label>
+                            <input type="number" step="any" name="presupuesto" class="form-control" placeholder="Ej: 50000000" required>
+                        </div>
+
+                        <button type="submit" name="crear_convocatoria" class="btn btn-success w-100 fw-bold">
+                            <i class="bi bi-save"></i> Guardar Convocatoria
+                        </button>
+                    </form>
+                </div>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th class="text-center" style="width: 5%;">#</th>
-                                <th>Nombre</th>
-                                <th class="text-center" style="width: 15%;">Cupos</th>
-                                <th class="text-end" style="width: 25%;">Presupuesto</th>
-                                <?php if (!$es_visualizador): ?><th class="text-center" style="width: 15%;">Acciones</th><?php endif; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (count($convocatorias) === 0): ?>
-                                <tr><td colspan="<?= $es_visualizador ? '4' : '5' ?>" class="text-center py-4 text-muted">No hay convocatorias creadas.</td></tr>
-                            <?php endif; ?>
+        </div>
+        <?php endif; ?>
 
-                            <?php $item = 1; foreach ($convocatorias as $c): ?>
-                            <tr>
-                                <td class="text-center fw-bold text-muted align-middle"><?= $item++ ?></td>
-                                <td class="fw-bold align-middle text-uppercase"><?= htmlspecialchars($c['nombre']) ?></td>
-                                <td class="text-center fw-bold align-middle"><span class="badge bg-secondary"><?= $c['cupos'] ?> Cupos</span></td>
-                                <td class="text-end fw-bold text-success align-middle">
-                                    <?= $c['presupuesto'] > 0 ? '$'.number_format($c['presupuesto'], 2, ',', '.') : '<span class="text-muted fw-normal">Sin asignar</span>' ?>
-                                </td>
-                                
-                                <?php if (!$es_visualizador): ?>
-                                <td class="text-center align-middle">
-                                    <div class="d-flex justify-content-center gap-1">
-                                        <!-- Botón Editar -->
-                                        <a href="?editar=<?= $c['id'] ?>" class="btn btn-sm btn-outline-primary border-0" title="Editar convocatoria">
-                                            <i class="bi bi-pencil-square fs-6"></i>
-                                        </a>
-
-                                        <!-- Botón Eliminar -->
-                                        <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar esta convocatoria?');">
-                                            <input type="hidden" name="id_convocatoria" value="<?= $c['id'] ?>">
-                                            <button type="submit" name="eliminar_convocatoria" class="btn btn-sm btn-outline-danger border-0" title="Eliminar convocatoria">
-                                                <i class="bi bi-trash3-fill fs-6"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
+        <!-- Listado de Convocatorias -->
+        <div class="<?= $es_visualizador ? 'col-md-12' : 'col-md-8' ?>">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-dark text-white fw-bold">Convocatorias de <?= htmlspecialchars($nombre_apoyo_actual) ?> (<?= count($convocatorias) ?>)</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
+                        <table class="table table-striped mb-0 align-middle">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nombre</th>
+                                    <th>Apoyo Asociado</th>
+                                    <th class="text-center">Cupos</th>
+                                    <th class="text-end">Presupuesto</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (count($convocatorias) === 0): ?>
+                                    <tr><td colspan="6" class="text-center py-4 text-muted">No hay convocatorias registradas para este apoyo.</td></tr>
                                 <?php endif; ?>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                                <?php foreach ($convocatorias as $c): ?>
+                                    <tr>
+                                        <td class="fw-bold"><?= $c['id'] ?></td>
+                                        <td class="fw-bold text-success fs-6"><?= htmlspecialchars($c['nombre']) ?></td>
+                                        <td><span class="badge bg-secondary"><?= htmlspecialchars($c['nombre_apoyo'] ?? 'General') ?></span></td>
+                                        <td class="text-center fw-bold"><?= $c['cupos'] ?></td>
+                                        <td class="text-end fw-bold text-success"><?= !empty($c['presupuesto']) ? '$'.number_format($c['presupuesto'], 0, ',', '.') : '$0' ?></td>
+                                        <td class="text-center">
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="btn btn-primary fw-bold" title="Abrir planilla">
+                                                    <i class="bi bi-eye-fill"></i>
+                                                </a>
+                                                <?php if (!$es_visualizador): ?>
+                                                <button type="button" class="btn btn-warning fw-bold btn-editar-conv" 
+                                                        data-bs-toggle="modal" 
+                                                        data-bs-target="#modalEditarConv"
+                                                        data-id="<?= $c['id'] ?>"
+                                                        data-nombre="<?= htmlspecialchars($c['nombre']) ?>"
+                                                        data-apoyoid="<?= $c['apoyo_id'] ?>"
+                                                        data-cupos="<?= $c['cupos'] ?>"
+                                                        data-presupuesto="<?= $c['presupuesto'] ?>"
+                                                        title="Editar datos de la convocatoria">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                </button>
+                                                <?php endif; ?>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- MODAL: EDITAR CONVOCATORIA -->
+<div class="modal fade" id="modalEditarConv" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="convocatoria_id" id="edit_conv_id">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Convocatoria</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tipo de Apoyo:</label>
+                        <select name="apoyo_id" id="edit_conv_apoyo" class="form-select fw-bold" required>
+                            <?php foreach ($tipos_apoyo_list as $ta): ?>
+                                <option value="<?= $ta['id'] ?>"><?= htmlspecialchars($ta['nombre']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre de la Convocatoria</label>
+                        <input type="text" name="nombre" id="edit_conv_nombre" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Cupos Totales</label>
+                        <input type="number" name="cupos" id="edit_conv_cupos" class="form-control" min="1" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Presupuesto Asignado</label>
+                        <input type="number" step="any" name="presupuesto" id="edit_conv_presupuesto" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm fw-bold" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" name="editar_convocatoria" class="btn btn-success btn-sm fw-bold">
+                        <i class="bi bi-check-circle-fill"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const botonesEditar = document.querySelectorAll('.btn-editar-conv');
+    botonesEditar.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('edit_conv_id').value = this.dataset.id;
+            document.getElementById('edit_conv_nombre').value = this.dataset.nombre;
+            document.getElementById('edit_conv_apoyo').value = this.dataset.apoyoid;
+            document.getElementById('edit_conv_cupos').value = this.dataset.cupos;
+            document.getElementById('edit_conv_presupuesto').value = this.dataset.presupuesto;
+        });
+    });
+});
+</script>
 
 <?php require_once '../../includes/footer.php'; ?>

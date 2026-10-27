@@ -2,11 +2,20 @@
 require_once '../../config/database.php';
 require_once '../../includes/header.php';
 
-// AUTO-VERIFICACIÓN DE LA TABLA Y COLUMNA 'saldo_por_pagar'
+// Obtener el apoyo activo actual desde la sesión
+$apoyo_activo_id = $_SESSION['apoyo_activo_id'] ?? 1;
+
+// Obtener el nombre del apoyo activo actual
+$stmtApoyoNom = $pdo->prepare("SELECT nombre FROM tipos_apoyo WHERE id = ?");
+$stmtApoyoNom->execute([$apoyo_activo_id]);
+$nombre_apoyo_actual = $stmtApoyoNom->fetchColumn() ?: 'Apoyo';
+
+// AUTO-VERIFICACIÓN DE LA TABLA Y COLUMNAS
 try {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS datos_bancarios_convocatoria (
             id INT AUTO_INCREMENT PRIMARY KEY,
+            apoyo_id INT DEFAULT 1,
             convocatoria_id INT NOT NULL,
             tipo_documento VARCHAR(10) DEFAULT NULL,
             documento VARCHAR(20) NOT NULL,
@@ -23,9 +32,9 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 
-    $checkCol = $pdo->query("SHOW COLUMNS FROM datos_bancarios_convocatoria LIKE 'saldo_por_pagar'");
+    $checkCol = $pdo->query("SHOW COLUMNS FROM datos_bancarios_convocatoria LIKE 'apoyo_id'");
     if ($checkCol && $checkCol->rowCount() == 0) {
-        $pdo->exec("ALTER TABLE datos_bancarios_convocatoria ADD COLUMN saldo_por_pagar DECIMAL(15, 2) DEFAULT 0 AFTER cuota");
+        $pdo->exec("ALTER TABLE datos_bancarios_convocatoria ADD COLUMN apoyo_id INT DEFAULT 1 AFTER id");
     }
 } catch (PDOException $e) {
     // Continuar
@@ -53,7 +62,7 @@ function limpiarMoneda($valor) {
     } elseif (strpos($val, ',') !== false) {
         $partes = explode(',', $val);
         if (strlen(end($partes)) === 3) {
-            $val = str_replace(',', '', $val);
+            $val = str_replace('.', '', $val);
         } else {
             $val = str_replace(',', '.', $val);
         }
@@ -61,17 +70,27 @@ function limpiarMoneda($valor) {
     return floatval($val);
 }
 
-// Obtener convocatorias
-$stmtConvs = $pdo->query("SELECT id, nombre FROM convocatorias ORDER BY id DESC");
+// Obtener SOLAMENTE las convocatorias que pertenecen al apoyo activo actual
+$stmtConvs = $pdo->prepare("SELECT id, nombre FROM convocatorias WHERE apoyo_id = ? ORDER BY id DESC");
+$stmtConvs->execute([$apoyo_activo_id]);
 $convocatorias = $stmtConvs->fetchAll(PDO::FETCH_ASSOC);
 
 $convocatoria_id = $_GET['convocatoria_id'] ?? ($_POST['convocatoria_id'] ?? ($convocatorias[0]['id'] ?? null));
 $convocatoria_nombre = "";
 
 if ($convocatoria_id) {
-    $stmtC = $pdo->prepare("SELECT nombre FROM convocatorias WHERE id = ?");
-    $stmtC->execute([$convocatoria_id]);
+    // Validar que la convocatoria pertenezca al apoyo activo
+    $stmtC = $pdo->prepare("SELECT nombre FROM convocatorias WHERE id = ? AND apoyo_id = ?");
+    $stmtC->execute([$convocatoria_id, $apoyo_activo_id]);
     $convocatoria_nombre = $stmtC->fetchColumn();
+    
+    if (!$convocatoria_nombre) {
+        $convocatoria_id = $convocatorias[0]['id'] ?? null;
+        if ($convocatoria_id) {
+            $stmtC->execute([$convocatoria_id, $apoyo_activo_id]);
+            $convocatoria_nombre = $stmtC->fetchColumn();
+        }
+    }
 }
 
 $mensaje = "";
@@ -90,20 +109,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_manual'])) {
     $cuota = !empty($_POST['cuota']) ? (string)intval($_POST['cuota']) : '';
     $saldo_pagar = limpiarMoneda($_POST['saldo_por_pagar']);
 
-    if (!empty($doc) && is_numeric($doc)) {
+    if (!empty($doc) && is_numeric($doc) && $convocatoria_id) {
         try {
             $stmtInsert = $pdo->prepare("
                 INSERT INTO datos_bancarios_convocatoria 
-                (convocatoria_id, tipo_documento, documento, nombre, crp, no_cuentas_bancarias, entidad_bancaria, tipo_cuenta_bancaria, valor_crp, pagos_acumulados, cuota, saldo_por_pagar) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (apoyo_id, convocatoria_id, tipo_documento, documento, nombre, crp, no_cuentas_bancarias, entidad_bancaria, tipo_cuenta_bancaria, valor_crp, pagos_acumulados, cuota, saldo_por_pagar) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmtInsert->execute([$convocatoria_id, $tipo, $doc, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar]);
-            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Aprendiz guardado correctamente en el Ciberbanco.</div>";
+            $stmtInsert->execute([$apoyo_activo_id, $convocatoria_id, $tipo, $doc, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Aprendiz guardado correctamente en el Ciberbanco de este apoyo.</div>";
         } catch (PDOException $e) {
-            $mensaje = "<div class='alert alert-warning fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> El documento $doc ya existe en esta convocatoria. Puedes usar el botón 'Editar' en la tabla.</div>";
+            $mensaje = "<div class='alert alert-warning fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> El documento $doc ya existe en esta convocatoria. Puedes usar el botón 'Editar'.</div>";
         }
     } else {
-        $mensaje = "<div class='alert alert-danger fw-bold'>El número de documento no es válido.</div>";
+        $mensaje = "<div class='alert alert-danger fw-bold'>Selecciona una convocatoria válida y un documento numérico.</div>";
     }
 }
 
@@ -125,10 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_registro'])) {
         UPDATE datos_bancarios_convocatoria 
         SET tipo_documento = ?, nombre = ?, crp = ?, no_cuentas_bancarias = ?, entidad_bancaria = ?, tipo_cuenta_bancaria = ?, 
             valor_crp = ?, pagos_acumulados = ?, cuota = ?, saldo_por_pagar = ?
-        WHERE id = ? AND convocatoria_id = ?
+        WHERE id = ? AND apoyo_id = ?
     ");
-    $stmtUpdate->execute([$tipo, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar, $reg_id, $convocatoria_id]);
-    $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Datos del aprendiz actualizados con éxito.</div>";
+    $stmtUpdate->execute([$tipo, $nombre, $crp, $cuenta, $entidad, $tipo_cuenta, $valor_crp, $pagos_acum, $cuota, $saldo_pagar, $reg_id, $apoyo_activo_id]);
+    $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Datos bancarios actualizados con éxito.</div>";
 }
 
 // 3. ACCIÓN: CARGA MASIVA CSV
@@ -140,8 +159,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
         
         $stmtUpsert = $pdo->prepare("
             INSERT INTO datos_bancarios_convocatoria 
-            (convocatoria_id, tipo_documento, documento, nombre, crp, no_cuentas_bancarias, entidad_bancaria, tipo_cuenta_bancaria, valor_crp, pagos_acumulados, cuota, saldo_por_pagar) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (apoyo_id, convocatoria_id, tipo_documento, documento, nombre, crp, no_cuentas_bancarias, entidad_bancaria, tipo_cuenta_bancaria, valor_crp, pagos_acumulados, cuota, saldo_por_pagar) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE 
             tipo_documento = VALUES(tipo_documento),
             nombre = VALUES(nombre),
@@ -179,6 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
 
                 if (!empty($documento) && is_numeric($documento)) {
                     $stmtUpsert->execute([
+                        $apoyo_activo_id,
                         $convocatoria_id,
                         strtoupper($tipo_doc),
                         $documento, 
@@ -196,15 +216,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subir_banco_convocato
                 }
             }
         }
-        $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-cloud-check-fill'></i> Se actualizaron los datos financieros de $registrados aprendices.</div>";
+        $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-cloud-check-fill'></i> Se actualizaron los datos financieros de $registrados aprendices en este apoyo.</div>";
     }
 }
 
-// Obtener registros
+// Obtener registros filtrados por la convocatoria y el apoyo activo
 $registros = [];
 if ($convocatoria_id) {
-    $stmtList = $pdo->prepare("SELECT * FROM datos_bancarios_convocatoria WHERE convocatoria_id = ? ORDER BY nombre ASC");
-    $stmtList->execute([$convocatoria_id]);
+    $stmtList = $pdo->prepare("SELECT * FROM datos_bancarios_convocatoria WHERE convocatoria_id = ? AND apoyo_id = ? ORDER BY nombre ASC");
+    $stmtList->execute([$convocatoria_id, $apoyo_activo_id]);
     $registros = $stmtList->fetchAll(PDO::FETCH_ASSOC);
 }
 ?>
@@ -213,7 +233,7 @@ if ($convocatoria_id) {
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h2><i class="bi bi-bank2 text-success"></i> Módulo Ciberbanco</h2>
-            <p class="text-muted mb-0">Gestión de datos bancarios, cuentas, CRPs y saldos por convocatoria.</p>
+            <p class="text-muted mb-0">Gestión de datos bancarios para: <span class="badge bg-success"><?= htmlspecialchars($nombre_apoyo_actual) ?></span></p>
         </div>
         <?php if ($convocatoria_id): ?>
         <button class="btn btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalNuevo">
@@ -224,7 +244,7 @@ if ($convocatoria_id) {
 
     <?= $mensaje ?>
 
-    <!-- Selector de Convocatoria y Búsqueda Rápida -->
+    <!-- Selector de Convocatoria y Búsqueda -->
     <div class="card shadow-sm mb-3 border-0 bg-light">
         <div class="card-body py-2">
             <div class="row g-2 align-items-center">
@@ -233,6 +253,9 @@ if ($convocatoria_id) {
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white fw-bold">Convocatoria:</span>
                             <select name="convocatoria_id" class="form-select fw-bold" onchange="this.form.submit()">
+                                <?php if(count($convocatorias) === 0): ?>
+                                    <option value="">No hay convocatorias en este apoyo</option>
+                                <?php endif; ?>
                                 <?php foreach ($convocatorias as $conv): ?>
                                     <option value="<?= $conv['id'] ?>" <?= $conv['id'] == $convocatoria_id ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($conv['nombre']) ?>
@@ -253,12 +276,12 @@ if ($convocatoria_id) {
     </div>
 
     <?php if ($convocatoria_id): ?>
-        <!-- Acordeón para Carga Masiva (Ocultable para no estorbar la vista) -->
+        <!-- Acordeón para Carga Masiva CSV -->
         <div class="accordion mb-3" id="accordionCSV">
             <div class="accordion-item shadow-sm border-success">
                 <h2 class="accordion-header" id="headingCSV">
                     <button class="accordion-button collapsed py-2 bg-success bg-opacity-10 text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCSV" aria-expanded="false">
-                        <i class="bi bi-file-earmark-spreadsheet-fill me-2"></i> ¿Deseas hacer una carga masiva mediante archivo CSV? (Clic aquí)
+                        <i class="bi bi-file-earmark-spreadsheet-fill me-2 text-success"></i> ¿Deseas hacer una carga masiva mediante archivo CSV? (Clic aquí)
                     </button>
                 </h2>
                 <div id="collapseCSV" class="accordion-collapse collapse" data-bs-parent="#accordionCSV">
@@ -273,7 +296,7 @@ if ($convocatoria_id) {
                                 <input type="file" name="archivo_csv" class="form-control form-control-sm" accept=".csv" required>
                             </div>
                             <div class="col-md-3">
-                                <button type="submit" name="subir_banco_convocatoria" class="btn btn-sm btn-success fw-bold w-100">
+                                <button type="submit" name="subir_banco_convocatoria" class="btn btn-sm btn-success fw-bold w-100 text-white">
                                     <i class="bi bi-upload"></i> Subir Base CSV
                                 </button>
                             </div>
@@ -309,7 +332,7 @@ if ($convocatoria_id) {
                         </thead>
                         <tbody id="tbodyCiberbanco">
                             <?php if (count($registros) === 0): ?>
-                                <tr id="filaVacia"><td colspan="12" class="text-center py-4 text-muted">No hay datos bancarios registrados en esta convocatoria.</td></tr>
+                                <tr id="filaVacia"><td colspan="12" class="text-center py-4 text-muted">No hay datos bancarios registrados en esta convocatoria para este apoyo.</td></tr>
                             <?php endif; ?>
                             <?php foreach ($registros as $reg): ?>
                                 <tr class="fila-ciberbanco" data-busqueda="<?= strtolower(htmlspecialchars($reg['documento'] . ' ' . $reg['nombre'] . ' ' . ($reg['crp'] ?? ''))) ?>">
@@ -425,7 +448,6 @@ if ($convocatoria_id) {
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <form method="POST">
-                        <input type="hidden" name="convocatoria_id" value="<?= $convocatoria_id ?>">
                         <input type="hidden" name="registro_id" id="edit_id">
                         <div class="modal-header bg-dark text-white">
                             <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Datos Bancarios del Aprendiz</h5>
@@ -492,7 +514,6 @@ if ($convocatoria_id) {
 
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Filtrado instantáneo en la tabla
             const inputFiltro = document.getElementById('filtroCiberbanco');
             const filas = document.querySelectorAll('.fila-ciberbanco');
             const conteo = document.getElementById('conteoRegistros');
@@ -515,7 +536,6 @@ if ($convocatoria_id) {
                 });
             }
 
-            // Inyectar datos al Modal de Editar
             const botonesEditar = document.querySelectorAll('.btn-editar');
             botonesEditar.forEach(function(btn) {
                 btn.addEventListener('click', function() {

@@ -5,7 +5,7 @@ require_once 'includes/header.php';
 // Contexto del apoyo activo seleccionado en el menú lateral
 $apoyo_activo_id = $_SESSION['apoyo_activo_id'] ?? 1;
 
-// 1. Estadísticas globales (Misma lógica intacta, filtrando convocatorias por el apoyo activo)
+// 1. Estadísticas globales (Filtrando convocatorias por el apoyo activo)
 $stmtTotalConv = $pdo->prepare("SELECT COUNT(*) FROM convocatorias WHERE apoyo_id = ?");
 $stmtTotalConv->execute([$apoyo_activo_id]);
 $totalConvocatorias = $stmtTotalConv->fetchColumn() ?: 0;
@@ -34,7 +34,7 @@ $ejecucionTotal = (float)($stmtEjec->fetchColumn() ?: 0);
 $saldoTotalDisponible = $presupuestoTotal - $ejecucionTotal;
 $porcentajeEjecucion = ($presupuestoTotal > 0) ? min(100, round(($ejecucionTotal / $presupuestoTotal) * 100, 1)) : 0;
 
-// Desglose financiero por convocatoria
+// Desglose financiero por convocatoria para la tabla
 $stmtFinanzas = $pdo->prepare("
     SELECT c.id, c.nombre, c.cupos, c.presupuesto, 
            COALESCE(SUM(m.valor_pagado), 0) AS total_ejecutado
@@ -46,17 +46,6 @@ $stmtFinanzas = $pdo->prepare("
 ");
 $stmtFinanzas->execute([$apoyo_activo_id]);
 $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
-
-// Preparar arreglos para los gráficos de Chart.js
-$chartLabels = [];
-$chartPresupuesto = [];
-$chartEjecutado = [];
-
-foreach ($desgloseConvocatorias as $dc) {
-    $chartLabels[] = $dc['nombre'];
-    $chartPresupuesto[] = (float)$dc['presupuesto'];
-    $chartEjecutado[] = (float)$dc['total_ejecutado'];
-}
 ?>
 
 <style>
@@ -223,56 +212,48 @@ foreach ($desgloseConvocatorias as $dc) {
     </div>
 </div>
 
-<!-- 3. CENTRO DE INTELIGENCIA FINANCIERA Y GRÁFICOS -->
-<div class="row g-4 mb-4">
-    <!-- Panel Izquierdo: Resumen Presupuestal + Gráfico de Dona -->
-    <div class="col-xl-5">
-        <div class="card bg-white h-100">
-            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                <div class="fw-bold text-dark">
-                    <i class="bi bi-pie-chart-fill text-success me-2"></i>Balance Presupuestal en Vivo
-                </div>
-                <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1">
-                    <?= $porcentajeEjecucion ?>% Ejecutado
-                </span>
-            </div>
-            <div class="card-body d-flex flex-column justify-content-between">
-                <div class="row g-2 mb-3">
-                    <div class="col-12">
-                        <div class="finance-stat-box d-flex justify-content-between align-items-center">
-                            <div>
-                                <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.7rem;">Presupuesto Total Asignado</span>
-                                <h4 class="fw-extrabold text-dark mb-0">$<?= number_format($presupuestoTotal, 2, ',', '.') ?></h4>
-                            </div>
-                            <i class="bi bi-wallet2 fs-3 text-secondary opacity-50"></i>
+<!-- 3. CENTRO DE INTELIGENCIA FINANCIERA (FULL WIDTH) -->
+<div class="card bg-white mb-4 shadow-sm border-0">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+        <div class="fw-bold text-dark">
+            <i class="bi bi-pie-chart-fill text-success me-2"></i>Balance Presupuestal en Vivo Global
+        </div>
+        <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1">
+            <?= $porcentajeEjecucion ?>% Ejecutado
+        </span>
+    </div>
+    <div class="card-body py-4">
+        <div class="row align-items-center">
+            <!-- Panel Izquierdo: Cifras y Progreso -->
+            <div class="col-lg-8">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="finance-stat-box h-100 d-flex flex-column justify-content-center">
+                            <span class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size: 0.72rem;">Presupuesto Total</span>
+                            <h4 class="fw-extrabold text-dark mb-0">$<?= number_format($presupuestoTotal, 0, ',', '.') ?></h4>
                         </div>
                     </div>
-                    <div class="col-sm-6">
-                        <div class="finance-stat-box border-start border-3 border-success">
-                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.68rem;">Total Pagado</span>
-                            <h5 class="fw-bold text-success mb-0">$<?= number_format($ejecucionTotal, 2, ',', '.') ?></h5>
+                    <div class="col-md-4">
+                        <div class="finance-stat-box h-100 border-start border-4 border-success d-flex flex-column justify-content-center">
+                            <span class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size: 0.72rem;">Total Pagado</span>
+                            <h4 class="fw-bold text-success mb-0">$<?= number_format($ejecucionTotal, 0, ',', '.') ?></h4>
                         </div>
                     </div>
-                    <div class="col-sm-6">
-                        <div class="finance-stat-box border-start border-3 border-danger">
-                            <span class="text-muted small fw-bold text-uppercase d-block" style="font-size: 0.68rem;">Saldo por Ejecutar</span>
-                            <h5 class="fw-bold text-danger mb-0">$<?= number_format($saldoTotalDisponible, 2, ',', '.') ?></h5>
+                    <div class="col-md-4">
+                        <div class="finance-stat-box h-100 border-start border-4 border-danger d-flex flex-column justify-content-center">
+                            <span class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size: 0.72rem;">Saldo por Ejecutar</span>
+                            <h4 class="fw-bold text-danger mb-0">$<?= number_format($saldoTotalDisponible, 0, ',', '.') ?></h4>
                         </div>
                     </div>
                 </div>
-
-                <!-- Gráfico de Dona -->
-                <div class="position-relative mx-auto my-2" style="height: 190px; max-width: 240px;">
-                    <canvas id="chartDonaPresupuesto"></canvas>
-                </div>
-
+                
                 <!-- Barra de Progreso Global -->
-                <div class="mt-2">
-                    <div class="d-flex justify-content-between small fw-bold text-muted mb-1" style="font-size: 0.75rem;">
-                        <span>Avance de Meta Financiera</span>
+                <div class="pe-lg-3">
+                    <div class="d-flex justify-content-between small fw-bold text-muted mb-2" style="font-size: 0.8rem;">
+                        <span>Avance de Meta Financiera Global</span>
                         <span class="text-success"><?= $porcentajeEjecucion ?>%</span>
                     </div>
-                    <div class="progress" style="height: 12px; border-radius: 8px;">
+                    <div class="progress shadow-sm" style="height: 16px; border-radius: 8px;">
                         <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" 
                              role="progressbar" 
                              style="width: <?= $porcentajeEjecucion ?>%;">
@@ -280,49 +261,32 @@ foreach ($desgloseConvocatorias as $dc) {
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Panel Derecho: Gráfico Comparativo por Convocatoria -->
-    <div class="col-xl-7">
-        <div class="card bg-white h-100">
-            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                <div class="fw-bold text-dark">
-                    <i class="bi bi-bar-chart-line-fill text-success me-2"></i>Comparativa Financiera por Convocatoria
+            
+            <!-- Panel Derecho: Gráfico de Dona -->
+            <div class="col-lg-4 mt-4 mt-lg-0 text-center">
+                <div class="position-relative mx-auto" style="height: 200px; max-width: 240px;">
+                    <canvas id="chartDonaPresupuesto"></canvas>
                 </div>
-                <span class="text-muted small">Asignado vs. Ejecutado</span>
-            </div>
-            <div class="card-body d-flex flex-column justify-content-center">
-                <?php if (count($desgloseConvocatorias) === 0): ?>
-                    <div class="text-center py-5 text-muted">
-                        <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
-                        Aún no hay convocatorias registradas en este apoyo para graficar.
-                    </div>
-                <?php else: ?>
-                    <div style="height: 310px; width: 100%;">
-                        <canvas id="chartBarrasConvocatorias"></canvas>
-                    </div>
-                <?php endif; ?>
             </div>
         </div>
     </div>
 </div>
 
 <!-- 4. TABLA DE DESGLOSE FINANCIERO POR CONVOCATORIA CON BUSCADOR -->
-<div class="card bg-white mb-4">
+<div class="card bg-white mb-4 shadow-sm border-0">
     <div class="card-header bg-dark text-white d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 py-3">
         <div class="fw-bold">
             <i class="bi bi-table me-2 text-success"></i>Detalle de Ejecución y Planillas por Convocatoria
         </div>
         <div class="input-group input-group-sm" style="max-width: 320px;">
             <span class="input-group-text bg-white border-0"><i class="bi bi-search text-muted"></i></span>
-            <input type="text" id="buscadorConvDashboard" class="form-control border-0" placeholder="Filtrar convocatoria en tiempo real...">
+            <input type="text" id="buscadorConvDashboard" class="form-control border-0 shadow-none" placeholder="Filtrar convocatoria en tiempo real...">
         </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="tablaConvDashboard">
-                <thead>
+                <thead class="table-light">
                     <tr>
                         <th class="ps-4">Convocatoria</th>
                         <th class="text-center">Cupos</th>
@@ -364,17 +328,17 @@ foreach ($desgloseConvocatorias as $dc) {
                             </span>
                         </td>
                         <td class="text-end fw-bold text-dark">
-                            <?= $presup_conv > 0 ? '$'.number_format($presup_conv, 2, ',', '.') : '<span class="badge bg-warning text-dark">Sin asignar</span>' ?>
+                            <?= $presup_conv > 0 ? '$'.number_format($presup_conv, 0, ',', '.') : '<span class="badge bg-warning text-dark">Sin asignar</span>' ?>
                         </td>
                         <td class="text-end fw-bold text-success">
-                            $<?= number_format($ejec_conv, 2, ',', '.') ?>
+                            $<?= number_format($ejec_conv, 0, ',', '.') ?>
                         </td>
                         <td class="text-end fw-bold <?= $saldo_conv < 0 ? 'text-danger' : 'text-secondary' ?>">
-                            $<?= number_format($saldo_conv, 2, ',', '.') ?>
+                            $<?= number_format($saldo_conv, 0, ',', '.') ?>
                         </td>
                         <td class="text-center align-middle px-3">
                             <div class="d-flex align-items-center gap-2">
-                                <div class="progress flex-grow-1" style="height: 8px; border-radius: 6px;">
+                                <div class="progress flex-grow-1 bg-light border" style="height: 10px; border-radius: 6px;">
                                     <div class="progress-bar bg-<?= $colorBarra ?>" style="width: <?= $porc_conv ?>%;"></div>
                                 </div>
                                 <span class="small fw-bold text-dark" style="min-width: 42px; font-size: 0.78rem;"><?= $porc_conv ?>%</span>
@@ -429,83 +393,17 @@ document.addEventListener('DOMContentLoaded', function() {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '72%',
+                cutout: '75%',
                 plugins: {
                     legend: {
                         position: 'bottom',
-                        labels: { boxWidth: 12, font: { size: 11, family: 'Inter' } }
+                        labels: { boxWidth: 12, font: { size: 12, family: 'Inter', weight: '500' } }
                     },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
                                 if (sinPresupuesto) return ' Sin presupuesto registrado';
-                                return ' $' + Number(context.raw).toLocaleString('es-CO');
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    // 3. Gráfico de Barras Comparativo por Convocatoria
-    const ctxBarras = document.getElementById('chartBarrasConvocatorias');
-    if (ctxBarras) {
-        const labels = <?= json_encode($chartLabels) ?>;
-        const dataPresupuesto = <?= json_encode($chartPresupuesto) ?>;
-        const dataEjecutado = <?= json_encode($chartEjecutado) ?>;
-
-        new Chart(ctxBarras, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Presupuesto Asignado',
-                        data: dataPresupuesto,
-                        backgroundColor: '#00324D',
-                        borderRadius: 6,
-                        barPercentage: 0.65
-                    },
-                    {
-                        label: 'Total Ejecutado',
-                        data: dataEjecutado,
-                        backgroundColor: '#39A900',
-                        borderRadius: 6,
-                        barPercentage: 0.65
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: '#F1F5F9' },
-                        ticks: {
-                            callback: function(value) {
-                                if (value >= 1000000) return '$' + (value / 1000000).toFixed(1) + 'M';
-                                return '$' + value.toLocaleString('es-CO');
-                            },
-                            font: { size: 11, family: 'Inter' }
-                        }
-                    },
-                    x: {
-                        grid: { display: false },
-                        ticks: { font: { size: 11, family: 'Inter', weight: '600' } }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        align: 'end',
-                        labels: { boxWidth: 12, font: { size: 12, family: 'Inter' } }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return ' ' + context.dataset.label + ': $' + Number(context.raw).toLocaleString('es-CO');
+                                return ' $' + Number(context.raw).toLocaleString('es-CO', {maximumFractionDigits: 0});
                             }
                         }
                     }

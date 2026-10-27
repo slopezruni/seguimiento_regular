@@ -163,7 +163,8 @@ if (!$mes_id) {
 
         // CARGA MANUAL
         if (isset($_POST['guardar_manual'])) {
-            $doc_manual = trim($_POST['documento']);
+            $doc_manual = preg_replace('/[^0-9]/', '', $_POST['documento']);
+            $ficha_manual = preg_replace('/[^0-9]/', '', $_POST['ficha']);
             
             $stmtCheckGlobal->execute([$doc_manual, $convocatoria_id, $convocatoria_data['apoyo_id']]);
             $otraConv = $stmtCheckGlobal->fetch(PDO::FETCH_ASSOC);
@@ -173,7 +174,7 @@ if (!$mes_id) {
             } elseif ($cupos_disponibles > 0) {
                 try {
                     $stmt = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
-                    $stmt->execute([$mes_id, $_POST['tipo_doc'], $doc_manual, strtoupper($_POST['nombre']), $_POST['ficha']]);
+                    $stmt->execute([$mes_id, strtoupper(trim($_POST['tipo_doc'])), $doc_manual, strtoupper(trim($_POST['nombre'])), $ficha_manual]);
                     echo "<div class='alert alert-success mt-2 fw-bold border-0 shadow-sm px-4'><i class='bi bi-check-circle-fill me-2'></i> Aprendiz agregado correctamente.</div>";
                     $inscritos++; $cupos_disponibles--;
                 } catch(PDOException $e) {
@@ -193,7 +194,7 @@ if (!$mes_id) {
             $cupos_disponibles++;
         }
 
-        // CARGA MASIVA CSV (AJUSTADA AL FORMATO DEL REPORTE DEL SISTEMA)
+        // CARGA MASIVA CSV DE APROBADOS
         if (isset($_POST['subir_csv'])) {
             if ($_FILES['archivo_csv']['error'] == 0) {
                 if ($cupos_disponibles > 0) {
@@ -205,7 +206,7 @@ if (!$mes_id) {
                     $stmtInsert = $pdo->prepare("INSERT INTO aprendices_mes (mes_id, tipo_documento, documento, nombre, ficha, estado_seguimiento) VALUES (?, ?, ?, ?, ?, 'Cumple')");
                     
                     foreach($lineas as $index => $linea) {
-                        if ($index === 0) continue; // Salta la primera línea (cabeceras)
+                        if ($index === 0) continue; 
                         if ($cupos_disponibles <= 0) {
                             $limite_alcanzado = true;
                             break; 
@@ -214,17 +215,14 @@ if (!$mes_id) {
                         $separador = strpos($linea, ';') !== false ? ';' : ',';
                         $datos = str_getcsv($linea, $separador);
                         
-                        // VALIDACIÓN: Verificar que tenga al menos las 5 columnas base del reporte
                         if (count($datos) >= 5) {
-                            
-                            // Extracción limpia (soporta y limpia espacios invisibles UTF-8)
                             $tipo = strtoupper(trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[1])));
-                            $documento = trim(preg_replace('/[^0-9]/', '', $datos[2])); // Extrae solo los números del documento
+                            $documento = trim(preg_replace('/[^0-9]/', '', $datos[2]));
                             $nombre = strtoupper(trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[3])));
-                            $ficha = trim(str_replace(['"', "'", "\xC2\xA0"], '', $datos[4]));
+                            $ficha = trim(preg_replace('/[^0-9]/', '', $datos[4]));
                             
                             if (empty($nombre)) $nombre = 'SIN NOMBRE';
-                            if (empty($ficha) || stripos($ficha, 'registro') !== false) $ficha = 'SIN FICHA';
+                            if (empty($ficha)) $ficha = 'SIN FICHA';
                             
                             if(!empty($documento) && is_numeric($documento)) {
                                 $stmtCheckGlobal->execute([$documento, $convocatoria_id, $convocatoria_data['apoyo_id']]);
@@ -258,19 +256,31 @@ if (!$mes_id) {
         }
     }
 
-    // CARGAR TODOS LOS APRENDICES DEL MES (Incluyendo cruce con Regular si es Transporte)
+    // CARGAR APRENDICES CRUZANDO CON:
+    // 1. Fechas de Ficha
+    // 2. Base FIC (Por separado)
+    // 3. Regular (Si es transporte)
+    // 4. DF-14 (Prioriza coincidencia exacta Documento + Ficha; si la ficha tenía variaciones, respalda por Documento)
     $sqlList = "SELECT a.*, 
-                (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) LIMIT 1) AS fecha_fin_lectiva,
+                (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f 
+                 WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci 
+                 LIMIT 1) AS fecha_fin_lectiva,
                 (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global,
                 (SELECT CASE WHEN COUNT(*) > 0 THEN 'SI' ELSE 'NO' END 
                  FROM aprendices_mes am2 
                  JOIN meses_seguimiento ms2 ON am2.mes_id = ms2.id 
                  JOIN convocatorias c2 ON ms2.convocatoria_id = c2.id 
                  JOIN tipos_apoyo t2 ON c2.apoyo_id = t2.id 
-                 WHERE TRIM(am2.documento) = TRIM(a.documento) 
-                 AND t2.nombre LIKE '%Regular%') AS activo_en_regular 
+                 WHERE TRIM(am2.documento) COLLATE utf8mb4_unicode_ci = TRIM(a.documento) COLLATE utf8mb4_unicode_ci 
+                 AND t2.nombre LIKE '%Regular%') AS activo_en_regular,
+                (SELECT df.estado_aprendiz FROM base_df14 df 
+                 WHERE TRIM(df.documento) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.documento, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
+                 ORDER BY (TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci) DESC, df.id DESC LIMIT 1) AS df_estado_aprendiz,
+                (SELECT df.estado_ficha FROM base_df14 df 
+                 WHERE TRIM(df.documento) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.documento, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
+                 ORDER BY (TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci) DESC, df.id DESC LIMIT 1) AS df_estado_ficha
                 FROM aprendices_mes a 
-                LEFT JOIN base_fic fic ON TRIM(a.documento) = TRIM(fic.documento) 
+                LEFT JOIN base_fic fic ON TRIM(a.documento) COLLATE utf8mb4_unicode_ci = TRIM(fic.documento) COLLATE utf8mb4_unicode_ci 
                 WHERE a.mes_id = ?
                 ORDER BY a.nombre ASC";
 
@@ -293,7 +303,6 @@ if (!$mes_id) {
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <!-- Menú Desplegable de Reportes Excel -->
                 <div class="dropdown">
                     <button class="btn btn-success fw-bold rounded-pill px-4 shadow-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="bi bi-file-earmark-excel-fill me-1"></i> Reportes Excel
@@ -418,7 +427,7 @@ if (!$mes_id) {
                                 <div class="d-flex align-items-start mb-4">
                                     <i class="bi bi-info-circle-fill text-primary fs-4 me-3 mt-1"></i>
                                     <p class="small text-muted mb-0 lh-sm">
-                                        Sube el archivo <b>CSV de Aprobados</b> que exportaste del mes anterior. El sistema extraerá automáticamente las cédulas, nombres y fichas, ignorando celdas rotas o duplicados.
+                                        Sube el archivo <b>CSV de Aprobados</b> que exportaste del mes anterior. El sistema extraerá automáticamente las cédulas, nombres y fichas.
                                     </p>
                                 </div>
                                 <form method="POST" enctype="multipart/form-data" class="d-flex gap-2">
@@ -434,38 +443,40 @@ if (!$mes_id) {
 
             <div class="card-body p-0">
                 <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-hover table-sm align-middle mb-0" id="tablaAprendices" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 1000px;">
+                    <table class="table table-hover table-sm align-middle mb-0" id="tablaAprendices" style="font-size: 0.85em; table-layout: fixed; width: 100%; min-width: 1120px;">
                         <colgroup>
                             <col style="width: 3%;">  <!-- # -->
-                            <col style="width: 6%;">  <!-- Tipo Doc -->
+                            <col style="width: 5%;">  <!-- Tipo Doc -->
                             <col style="width: 9%;">  <!-- Documento -->
-                            <col style="width: 19%;"> <!-- Nombre Completo -->
-                            <col style="width: 16%;"> <!-- Ficha y Tiempos -->
-                            <col style="width: 8%;">  <!-- Cruces FIC / REG -->
-                            <col style="width: 7%;">  <!-- CTO -->
-                            <col style="width: 7%;">  <!-- V.LAB -->
-                            <col style="width: 8%;">  <!-- E.PROD -->
-                            <col style="width: 13%;"> <!-- Estado Final -->
+                            <col style="width: 18%;"> <!-- Nombre Completo -->
+                            <col style="width: 14%;"> <!-- Ficha Académica -->
+                            <col style="width: 11%;"> <!-- Estado DF-14 -->
+                            <col style="width: 5%;">  <!-- FIC (Separado) -->
+                            <col style="width: 6%;">  <!-- CTO -->
+                            <col style="width: 6%;">  <!-- V.LAB -->
+                            <col style="width: 7%;">  <!-- E.PROD -->
+                            <col style="width: 12%;"> <!-- Estado Final -->
                             <?php if(!$es_visualizador): ?><col style="width: 4%;"><?php endif; ?> <!-- Eliminar -->
                         </colgroup>
                         <thead class="table-light sticky-top shadow-sm" style="z-index: 10;">
                             <tr>
                                 <th class="text-center text-muted px-1 py-3 border-bottom">#</th>
-                                <th class="text-center px-1 py-3 border-bottom">Tipo Doc</th>
+                                <th class="text-center px-1 py-3 border-bottom">Tipo</th>
                                 <th class="py-3 border-bottom">Documento</th>
                                 <th class="py-3 border-bottom">Nombre Completo</th>
-                                <th class="py-3 border-bottom">Ficha Académica</th>
-                                <th class="text-center text-nowrap px-1 py-3 border-bottom" title="Cruces Automáticos Institucionales">CRUCES ⚡</th>
+                                <th class="py-3 border-bottom">Ficha y Tiempos</th>
+                                <th class="text-center py-3 border-bottom" title="Estado del Aprendiz en el DF-14">ESTADO DF-14</th>
+                                <th class="text-center text-nowrap px-1 py-3 border-bottom" title="Apoyo FIC Automático">FIC ⚡</th>
                                 <th class="text-center text-nowrap px-1 py-3 border-bottom" title="¿Tiene Contrato?">CONTRATO</th>
                                 <th class="text-center text-nowrap px-1 py-3 border-bottom" title="¿Tiene Vínculo Laboral?">V.LABORAL</th>
                                 <th class="text-center text-nowrap px-1 text-success py-3 border-bottom" title="¿Ya inició Etapa Productiva?">E.PRODUC.</th>
-                                <th class="px-2 py-3 border-bottom">Resultado Final</th>
+                                <th class="px-2 py-3 border-bottom">Estado Final</th>
                                 <?php if(!$es_visualizador): ?><th class="text-center px-1 py-3 border-bottom"><i class="bi bi-trash-fill text-danger"></i></th><?php endif; ?>
                             </tr>
                         </thead>
                         <tbody id="tbodyAprendices">
                             <?php if(count($aprendices) === 0): ?>
-                                <tr id="filaSinDatos"><td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-2 d-block mb-2"></i> No hay aprendices registrados en este mes.</td></tr>
+                                <tr id="filaSinDatos"><td colspan="<?= $es_visualizador ? '11' : '12' ?>" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-2 d-block mb-2"></i> No hay aprendices registrados en este mes.</td></tr>
                             <?php endif; ?>
                             
                             <?php 
@@ -499,23 +510,29 @@ if (!$mes_id) {
                                             $alerta_fechas = "<span class='text-muted'><i class='bi bi-calendar'></i> Faltan $dias_restantes días</span>";
                                         }
                                     } else {
-                                        $alerta_fechas = "<span class='text-success fw-bold bg-success bg-opacity-10 px-2 py-1 rounded'><i class='bi bi-shield-check'></i> Salvado por E.P.</span>";
+                                        $alerta_fechas = "<span class='text-white fw-bold bg-success bg-opacity-10 px-2 py-1 rounded'><i class='bi bi-shield-check'></i> Salvado por E.P.</span>";
                                     }
+                                }
+
+                                // VALIDACIÓN: ALERTA SOLO SI LA FICHA ESTÁ TERMINADA EN DF-14
+                                $ficha_terminada = false;
+                                if (!empty($a['df_estado_ficha']) && stripos($a['df_estado_ficha'], 'terminada') !== false) {
+                                    $ficha_terminada = true;
                                 }
 
                                 // REGLAS EXCLUYENTES AUTOMÁTICAS
                                 if ($a['tiene_fic_global'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
-                                    $novedad_texto = 'Cruce FIC Automático';
+                                    $novedad_texto = 'Cancelado por FIC Automático';
                                 } elseif ($es_transporte && $a['activo_en_regular'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
                                     $novedad_texto = 'Activo en Apoyo Regular';
                                 } elseif ($a['contrato_aprendizaje'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
-                                    $novedad_texto = 'Contrato de Aprendizaje';
+                                    $novedad_texto = 'Cancelado por Contrato';
                                 } elseif ($a['vinculo_laboral'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
-                                    $novedad_texto = 'Vínculo Laboral Activo';
+                                    $novedad_texto = 'Cancelado por Vínculo Laboral';
                                 }
 
                                 // Sincronización silenciosa con la BD
@@ -557,19 +574,33 @@ if (!$mes_id) {
                                     </div>
                                 </td>
                                 
-                                <!-- CRUCES AUTOMÁTICOS -->
-                                <td class="text-center px-1 align-middle">
-                                    <div class="d-flex flex-column align-items-center gap-1">
-                                        <?php if ($a['tiene_fic_global'] == 'SI'): ?>
-                                            <span class="badge bg-danger shadow-sm border border-danger fw-bold" style="font-size: 0.65rem;" title="Cruce Positivo con Base FIC"><i class="bi bi-cone-striped"></i> FIC</span>
-                                        <?php else: ?>
-                                            <span class="badge bg-light text-muted border" style="font-size: 0.65rem;"><i class="bi bi-dash"></i> FIC</span>
+                                <!-- COLUMNA ESTADO DF-14 (Muestra estado del aprendiz y alerta SOLO si la ficha está terminada) -->
+                                <td class="text-center px-2 align-middle">
+                                    <?php if (!empty($a['df_estado_aprendiz'])): ?>
+                                        <span class="badge bg-light text-dark border fw-bold px-2 py-1" style="font-size: 0.75rem;">
+                                            <?= htmlspecialchars($a['df_estado_aprendiz']) ?>
+                                        </span>
+                                        
+                                        <?php if ($ficha_terminada): ?>
+                                            <div class="badge bg-danger text-white fw-bold mt-1 p-1 shadow-sm w-100 text-wrap" style="font-size: 0.68rem; line-height: 1.1;">
+                                                <i class="bi bi-exclamation-triangle-fill me-1"></i> Ficha Terminada
+                                            </div>
                                         <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="text-muted small" style="font-size: 0.72rem;">No encontrado</span>
+                                    <?php endif; ?>
+                                </td>
 
-                                        <?php if ($es_transporte && $a['activo_en_regular'] == 'SI'): ?>
-                                            <span class="badge bg-danger shadow-sm border border-danger fw-bold mt-1" style="font-size: 0.65rem;" title="El aprendiz ya recibe Apoyo Regular"><i class="bi bi-exclamation-triangle-fill"></i> REGULAR</span>
-                                        <?php endif; ?>
-                                    </div>
+                                <!-- COLUMNA FIC AUTOMÁTICO (SEPARADA COMO ESTABA ORIGINALMENTE) -->
+                                <td class="text-center px-1 align-middle">
+                                    <input class="form-check-input <?= $a['tiene_fic_global'] == 'SI' ? 'bg-danger border-danger' : 'border-dark bg-secondary opacity-50' ?> shadow-sm m-0" 
+                                           style="width:1.25rem; height:1.25rem; cursor:not-allowed;" 
+                                           type="checkbox" 
+                                           <?= $a['tiene_fic_global'] == 'SI' ? 'checked' : '' ?> 
+                                           disabled>
+                                    <?php if ($es_transporte && $a['activo_en_regular'] == 'SI'): ?>
+                                        <span class="badge bg-danger shadow-sm border border-danger fw-bold mt-1 d-block" style="font-size: 0.62rem;" title="Activo en Apoyo Regular">REGULAR</span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <td class="text-center px-1 align-middle">
@@ -590,7 +621,7 @@ if (!$mes_id) {
                                 
                                 <td class="lh-sm px-2 align-middle">
                                     <?php if($estado_calculado == 'Cumple'): ?>
-                                        <span class="badge bg-success shadow-sm mb-1 px-3 py-2 rounded-pill"><i class="bi bi-check-circle-fill me-1"></i> APROBADO</span>
+                                        <span class="badge bg-success shadow-sm mb-1 px-3 py-2 rounded-pill"><i class="bi bi-check-circle-fill me-1"></i> CUMPLE</span>
                                     <?php else: ?>
                                         <span class="badge bg-danger shadow-sm mb-1 px-3 py-2 rounded-pill"><i class="bi bi-x-circle-fill me-1"></i> CANCELADO</span>
                                     <?php endif; ?>
@@ -600,7 +631,6 @@ if (!$mes_id) {
                                     </div>
                                 </td>
 
-                                <!-- Eliminar (Solo para Gestor) -->
                                 <?php if(!$es_visualizador): ?>
                                 <td class="text-center px-1 align-middle">
                                     <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar a <?= addslashes($a['nombre']) ?>? Esto liberará su cupo en este mes.');">
@@ -616,7 +646,7 @@ if (!$mes_id) {
                             <?php endforeach; ?>
                             
                             <tr id="sinCoincidencias" style="display: none;">
-                                <td colspan="<?= $es_visualizador ? '10' : '11' ?>" class="text-center py-5 text-muted fw-bold bg-light">
+                                <td colspan="<?= $es_visualizador ? '11' : '12' ?>" class="text-center py-5 text-muted fw-bold bg-light">
                                     <i class="bi bi-search fs-2 d-block mb-2 opacity-50"></i> No se encontraron aprendices que coincidan con los filtros.
                                 </td>
                             </tr>
@@ -627,7 +657,6 @@ if (!$mes_id) {
         </div>
     </div>
 
-    <!-- SCRIPT DE FILTRADO INSTANTÁNEO EN TIEMPO REAL -->
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         const inputTexto = document.getElementById('filtroTexto');
@@ -647,8 +676,6 @@ if (!$mes_id) {
                 const dataEstado = fila.getAttribute('data-estado') || '';
 
                 const coincideTexto = texto === '' || dataBusqueda.includes(texto);
-                
-                // Comparación directa con el estado (Cumple / Cancelado)
                 const coincideEstado = (selectVal === 'todos' || dataEstado === selectVal);
 
                 if (coincideTexto && coincideEstado) {

@@ -174,7 +174,7 @@ function getBadgeAprendiz($estado) {
 <div class="container-fluid px-4 py-3">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
         <div>
-            <div class="d-inline-flex align-items-center gap-2 bg-success bg-opacity-10 border border-success border-opacity-25 text-success rounded-pill px-3 py-1 mb-2 small fw-bold">
+            <div class="d-inline-flex align-items-center gap-2 bg-success bg-opacity-10 border border-success border-opacity-25 text-white rounded-pill px-3 py-1 mb-2 small fw-bold">
                 <i class="bi bi-shield-check"></i> Módulo Oficial SofiaPlus
             </div>
             <h2 class="fw-extrabold text-dark mb-1">Base Maestra DF-14</h2>

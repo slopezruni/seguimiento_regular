@@ -52,7 +52,7 @@ if (!$mes_id) {
     <div class="container-fluid px-4 py-3">
         <div class="mb-4">
             <h2 class="fw-extrabold text-dark mb-1"><i class="bi bi-folder2-open text-success me-2"></i> Carpetas de Seguimiento</h2>
-            <p class="text-muted mb-0">Convocatoria: <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1"><?= htmlspecialchars($convocatoria_nombre) ?></span></p>
+            <p class="text-muted mb-0">Convocatoria: <span class="badge bg-success bg-opacity-10 text-white fw-bold px-2 py-1"><?= htmlspecialchars($convocatoria_nombre) ?></span></p>
         </div>
         
         <?= $mensaje ?? '' ?>

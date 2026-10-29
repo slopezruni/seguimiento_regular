@@ -139,7 +139,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
             <div class="card card-kpi bg-white h-100" style="border-left-color: #39A900;">
                 <div class="card-body d-flex justify-content-between align-items-center">
                     <div>
-                        <div class="text-uppercase fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Convocatorias Activas</div>
+                        <div class="text-white fw-bold text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">Convocatorias Activas</div>
                         <div class="kpi-value my-1"><?= number_format($totalConvocatorias, 0, ',', '.') ?></div>
                         <div class="text-success small fw-semibold" style="font-size: 0.78rem;">
                             <i class="bi bi-arrow-up-right-circle-fill me-1"></i> Administrar cupos
@@ -218,7 +218,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
         <div class="fw-bold text-dark">
             <i class="bi bi-pie-chart-fill text-success me-2"></i>Balance Presupuestal en Vivo Global
         </div>
-        <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1">
+        <span class="badge bg-success bg-opacity-10 text-white fw-bold px-2 py-1">
             <?= $porcentajeEjecucion ?>% Ejecutado
         </span>
     </div>

@@ -123,13 +123,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <h3 class="fw-extrabold mb-2">Sistema de Apoyos Socioeconómicos</h3>
             <p class="text-white-50 small mb-0">
-                Plataforma centralizada para el control presupuestal, seguimiento académico, gestión de Ciberbanco y emisión de planillas de pago.
+                Plataforma centralizada para el control presupuestal, seguimiento académico, gestión de Ciberbanco.
             </p>
         </div>
 
         <div class="border-top border-light border-opacity-25 pt-3 small">
-            <div class="fw-bold"><i class="bi bi-geo-alt-fill me-1"></i> Regional Valle del Cauca</div>
-            <div class="text-white-50" style="font-size: 0.78rem;">Centro de Electricidad y Automatización Industrial (CEAI)</div>
+            <div class="fw-bold"><i class="bi bi-geo-alt-fill me-1"></i> Regional Valle</div>
+            <div class="text-white-50" style="font-size: 0.78rem;">Centro de Electricidad y Automatización Industrial</div>
         </div>
     </div>
 
@@ -158,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label class="form-label small fw-bold text-secondary">Usuario o Correo SENA</label>
                 <div class="input-group">
                     <span class="input-group-text bg-light border-end-0"><i class="bi bi-person-check text-success"></i></span>
-                    <input type="text" name="login_input" class="form-control border-start-0" placeholder="Ej: slopezr o usuario@sena.edu.co" required autofocus>
+                    <input type="text" name="login_input" class="form-control border-start-0" placeholder="Ej: slopezr" required autofocus>
                 </div>
             </div>
 
@@ -179,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
 
         <div class="text-center mt-4 pt-2 border-top small text-muted" style="font-size: 0.75rem;">
-            Servicio Nacional de Aprendizaje SENA &copy; <?= date('Y') ?> &bull; Bienestar al Aprendiz
+            SENA &copy; <?= date('Y') ?> &bull; 
         </div>
     </div>
 </div>

@@ -14,6 +14,24 @@ if (!$convocatoria_id) {
     exit;
 }
 
+// Verificación única de estructura en BD para garantizar que estado_seguimiento acepte 'Cancelado' y exista motivo_cancelacion
+if (!isset($_SESSION['seg_cols_verificadas'])) {
+    try {
+        $colMotivo = $pdo->query("SHOW COLUMNS FROM aprendices_mes LIKE 'motivo_cancelacion'")->fetch();
+        if (!$colMotivo) {
+            $pdo->exec("ALTER TABLE aprendices_mes ADD COLUMN motivo_cancelacion VARCHAR(255) NULL DEFAULT NULL AFTER estado_seguimiento");
+        }
+        $colEstado = $pdo->query("SHOW COLUMNS FROM aprendices_mes LIKE 'estado_seguimiento'")->fetch(PDO::FETCH_ASSOC);
+        if ($colEstado && stripos($colEstado['Type'] ?? '', 'enum') !== false) {
+            $pdo->exec("ALTER TABLE aprendices_mes MODIFY COLUMN estado_seguimiento VARCHAR(30) NOT NULL DEFAULT 'Cumple'");
+        }
+        $pdo->exec("UPDATE aprendices_mes SET estado_seguimiento = 'Cancelado' WHERE motivo_cancelacion IS NOT NULL AND TRIM(motivo_cancelacion) != '' AND estado_seguimiento != 'Cancelado'");
+        $_SESSION['seg_cols_verificadas'] = true;
+    } catch (Throwable $e) {
+        // Continuar sin interrumpir la vista si el usuario de BD no tiene permisos DDL
+    }
+}
+
 // OBTENER DATOS DE LA CONVOCATORIA Y SU TIPO DE APOYO
 $stmtConv = $pdo->prepare("
     SELECT c.nombre, c.cupos, c.apoyo_id, t.nombre AS apoyo_nombre 
@@ -188,14 +206,19 @@ if (!$mes_id) {
     // ACCIONES PROTEGIDAS
     if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
-        // EVALUACIÓN RÁPIDA
+        // EVALUACIÓN RÁPIDA (Contrato, Vínculo Laboral, Etapa Productiva)
         if (isset($_POST['evaluar_rapido'])) {
+            $ap_eval_id = (int)($_POST['aprendiz_id'] ?? 0);
             $con = isset($_POST['contrato']) ? 'SI' : 'NO';
             $vin = isset($_POST['vinculo']) ? 'SI' : 'NO';
             $prod = isset($_POST['etapa_productiva']) ? 'SI' : 'NO';
             
-            $stmtEval = $pdo->prepare("UPDATE aprendices_mes SET contrato_aprendizaje = ?, vinculo_laboral = ?, etapa_productiva = ? WHERE id = ?");
-            $stmtEval->execute([$con, $vin, $prod, $_POST['aprendiz_id']]);
+            $stmtEval = $pdo->prepare("UPDATE aprendices_mes SET contrato_aprendizaje = ?, vinculo_laboral = ?, etapa_productiva = ? WHERE id = ? AND mes_id = ?");
+            $stmtEval->execute([$con, $vin, $prod, $ap_eval_id, $mes_id]);
+
+            if ($con === 'SI' || $vin === 'SI') {
+                $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = 'Cancelado' WHERE id = ? AND mes_id = ?")->execute([$ap_eval_id, $mes_id]);
+            }
         }
 
         // REGISTRAR NOVEDAD MANUAL DE CANCELACIÓN
@@ -206,7 +229,7 @@ if (!$mes_id) {
             if ($ap_nov_id > 0 && !empty($motivo_nov)) {
                 $stmtNov = $pdo->prepare("UPDATE aprendices_mes SET motivo_cancelacion = ?, estado_seguimiento = 'Cancelado' WHERE id = ? AND mes_id = ?");
                 $stmtNov->execute([$motivo_nov, $ap_nov_id, $mes_id]);
-                echo "<div class='alert alert-danger mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-octagon-fill me-2'></i> Novedad registrada: el aprendiz quedó en estado <b>CANCELADO</b> por el motivo indicado.</div>";
+                echo "<div class='alert alert-danger mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-octagon-fill me-2'></i> Novedad registrada: el aprendiz quedó en estado <b>CANCELADO</b> en la base de datos.</div>";
             } else {
                 echo "<div class='alert alert-warning mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-circle-fill me-2'></i> Debes escribir el motivo de la cancelación.</div>";
             }
@@ -216,7 +239,7 @@ if (!$mes_id) {
         if (isset($_POST['quitar_novedad_cancelar'])) {
             $ap_nov_id = (int)($_POST['aprendiz_id'] ?? 0);
             if ($ap_nov_id > 0) {
-                $stmtQuitarNov = $pdo->prepare("UPDATE aprendices_mes SET motivo_cancelacion = NULL WHERE id = ? AND mes_id = ?");
+                $stmtQuitarNov = $pdo->prepare("UPDATE aprendices_mes SET motivo_cancelacion = NULL, estado_seguimiento = 'Cumple' WHERE id = ? AND mes_id = ?");
                 $stmtQuitarNov->execute([$ap_nov_id, $mes_id]);
                 echo "<div class='alert alert-success mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-arrow-counterclockwise me-2'></i> Novedad manual retirada. El estado del aprendiz se recalculó automáticamente.</div>";
             }
@@ -387,6 +410,9 @@ if (!$mes_id) {
     $stmtList = $pdo->prepare($sqlList);
     $stmtList->execute([$mes_id]);
     $aprendices = $stmtList->fetchAll(PDO::FETCH_ASSOC);
+
+    // Preparar sentencia de sincronización de estado en BD
+    $stmtSyncEstado = $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?");
     ?>
 
     <div class="container-fluid px-3 py-2 seguimiento-compacto">
@@ -595,7 +621,8 @@ if (!$mes_id) {
                                 $estado_calculado = 'Cumple';
                                 $novedad_texto = 'Sin novedad';
                                 $alerta_fechas = '';
-                                $tiene_novedad_manual = !empty($a['motivo_cancelacion']);
+                                $motivo_manual_limpio = trim((string)($a['motivo_cancelacion'] ?? ''));
+                                $tiene_novedad_manual = ($motivo_manual_limpio !== '');
 
                                 // Cálculos de Tiempo (30 días calendario)
                                 if (!empty($a['fecha_fin_lectiva'])) {
@@ -630,7 +657,7 @@ if (!$mes_id) {
                                 // REGLAS EXCLUYENTES (LA NOVEDAD MANUAL TIENE PRIORIDAD Y GUARDA EL MOTIVO PERSONALIZADO)
                                 if ($tiene_novedad_manual) {
                                     $estado_calculado = 'Cancelado';
-                                    $novedad_texto = htmlspecialchars($a['motivo_cancelacion']);
+                                    $novedad_texto = htmlspecialchars($motivo_manual_limpio);
                                 } elseif ($a['tiene_fic_global'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
                                     $novedad_texto = 'Cancelado por FIC Automático';
@@ -645,16 +672,17 @@ if (!$mes_id) {
                                     $novedad_texto = 'Cancelado por Vínculo Laboral';
                                 }
 
-                                // Sincronización silenciosa con la BD
-                                if (!$es_visualizador && $a['estado_seguimiento'] !== $estado_calculado) {
-                                    $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?")->execute([$estado_calculado, $a['id']]);
+                                // Sincronización garantizada con la BD (sin importar el rol que visualiza la planilla)
+                                $estado_bd_actual = trim((string)($a['estado_seguimiento'] ?? ''));
+                                if ($estado_bd_actual !== $estado_calculado) {
+                                    $stmtSyncEstado->execute([$estado_calculado, $a['id']]);
                                 }
                             ?>
                             
                             <tr id="fila_<?= $a['id'] ?>" 
                                 class="fila-aprendiz <?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-10' : '' ?>"
                                 data-estado="<?= $estado_calculado ?>"
-                                data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'] . ' ' . ($a['motivo_cancelacion'] ?? ''))) ?>">
+                                data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'] . ' ' . $motivo_manual_limpio)) ?>">
 
                                 <td class="text-center fw-bold text-muted px-1 align-middle">
                                     <?= $item++ ?>
@@ -756,7 +784,7 @@ if (!$mes_id) {
                                                 data-id="<?= $a['id'] ?>"
                                                 data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
                                                 data-documento="<?= htmlspecialchars($a['documento']) ?>"
-                                                data-motivo="<?= htmlspecialchars($a['motivo_cancelacion'] ?? '') ?>"
+                                                data-motivo="<?= htmlspecialchars($motivo_manual_limpio) ?>"
                                                 title="<?= $tiene_novedad_manual ? 'Editar o quitar novedad de cancelación' : 'Registrar novedad para cancelar' ?>">
                                             <i class="bi bi-slash-circle-fill"></i>
                                         </button>
@@ -822,7 +850,7 @@ if (!$mes_id) {
                             <div class="mb-1">
                                 <label class="form-label fw-bold small text-danger mb-1">Motivo de cancelación *</label>
                                 <textarea name="motivo_cancelacion" id="nov_motivo_texto" class="form-control form-control-sm border-danger" rows="3" maxlength="255" placeholder="Escribe aquí el motivo exacto por el cual se cancela el apoyo..." required></textarea>
-                                <div class="form-text" style="font-size: 0.72rem;">Este motivo quedará visible en la columna Estado Final de la planilla.</div>
+                                <div class="form-text" style="font-size: 0.72rem;">Este motivo quedará visible en la columna Estado Final y actualizará el estado en la base de datos.</div>
                             </div>
                         </div>
                         <div class="modal-footer py-2 bg-light d-flex justify-content-between">

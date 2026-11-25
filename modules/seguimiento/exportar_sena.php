@@ -21,11 +21,12 @@ try {
     // Continuar
 }
 
-// 1. Obtener la información del mes y convocatoria
+// 1. Obtener la información del mes, convocatoria y tipo de apoyo
 $stmtMes = $pdo->prepare("
-    SELECT m.mes, m.convocatoria_id, c.nombre as convocatoria_nombre 
+    SELECT m.mes, m.convocatoria_id, c.nombre AS convocatoria_nombre, c.apoyo_id, t.nombre AS apoyo_nombre
     FROM meses_seguimiento m 
     JOIN convocatorias c ON m.convocatoria_id = c.id 
+    LEFT JOIN tipos_apoyo t ON c.apoyo_id = t.id
     WHERE m.id = ?
 ");
 $stmtMes->execute([$mes_id]);
@@ -36,21 +37,86 @@ if (!$datos_mes) {
 }
 
 $convocatoria_id = $datos_mes['convocatoria_id'];
+$es_transporte = (stripos($datos_mes['apoyo_nombre'] ?? '', 'transporte') !== false);
 
-// 2. Obtener aprendices que CUMPLEN y hacer CRUCE con los datos bancarios
+// 2. Obtener aprendices del mes con sus validaciones y hacer CRUCE con los datos bancarios
 $stmtApr = $pdo->prepare("
-    SELECT am.documento, am.tipo_documento, am.nombre, 
+    SELECT am.*, 
+           (SELECT f.fecha_fin_lectiva 
+            FROM distribucion_fichas f 
+            WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(am.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci 
+            LIMIT 1) AS fecha_fin_lectiva,
+           (CASE WHEN fic.documento IS NOT NULL THEN 'SI' ELSE 'NO' END) AS tiene_fic_global,
+           (SELECT CASE WHEN COUNT(*) > 0 THEN 'SI' ELSE 'NO' END 
+            FROM aprendices_mes am2 
+            JOIN meses_seguimiento ms2 ON am2.mes_id = ms2.id 
+            JOIN convocatorias c2 ON ms2.convocatoria_id = c2.id 
+            JOIN tipos_apoyo t2 ON c2.apoyo_id = t2.id 
+            WHERE TRIM(am2.documento) COLLATE utf8mb4_unicode_ci = TRIM(am.documento) COLLATE utf8mb4_unicode_ci 
+            AND t2.nombre LIKE '%Regular%') AS activo_en_regular,
            db.crp, db.entidad_bancaria, db.no_cuentas_bancarias, db.tipo_cuenta_bancaria, 
            db.valor_crp, db.pagos_acumulados, db.cuota, db.saldo_por_pagar
     FROM aprendices_mes am
+    LEFT JOIN base_fic fic 
+           ON TRIM(am.documento) COLLATE utf8mb4_unicode_ci = TRIM(fic.documento) COLLATE utf8mb4_unicode_ci
     LEFT JOIN datos_bancarios_convocatoria db 
            ON db.convocatoria_id = ? 
           AND TRIM(am.documento) COLLATE utf8mb4_general_ci = TRIM(db.documento) COLLATE utf8mb4_general_ci
-    WHERE am.mes_id = ? AND am.estado_seguimiento = 'Cumple' 
+    WHERE am.mes_id = ?
     ORDER BY am.nombre ASC
 ");
 $stmtApr->execute([$convocatoria_id, $mes_id]);
-$aprendices = $stmtApr->fetchAll(PDO::FETCH_ASSOC);
+$todos_aprendices = $stmtApr->fetchAll(PDO::FETCH_ASSOC);
+
+$hoy = new DateTime();
+$hoy->setTime(0, 0, 0);
+
+$stmtSyncEstado = $pdo->prepare("UPDATE aprendices_mes SET estado_seguimiento = ? WHERE id = ?");
+$aprendices = [];
+
+foreach ($todos_aprendices as $a) {
+    $estado_calculado = 'Cumple';
+    $motivo_manual_limpio = trim((string)($a['motivo_cancelacion'] ?? ''));
+    $tiene_novedad_manual = ($motivo_manual_limpio !== '');
+
+    // Regla de tiempo de 30 días calendario tras fin de etapa lectiva
+    if (!empty($a['fecha_fin_lectiva'])) {
+        $fin_lectiva = new DateTime($a['fecha_fin_lectiva']);
+        $fecha_limite = clone $fin_lectiva;
+        $fecha_limite->modify('+30 days');
+        $fecha_limite->setTime(0, 0, 0);
+
+        $dias_restantes = (int)$hoy->diff($fecha_limite)->format('%R%a');
+
+        if (($a['etapa_productiva'] ?? 'NO') == 'NO' && $dias_restantes < 0) {
+            $estado_calculado = 'Cancelado';
+        }
+    }
+
+    // Reglas excluyentes (la novedad manual de cancelación tiene prioridad)
+    if ($tiene_novedad_manual) {
+        $estado_calculado = 'Cancelado';
+    } elseif (($a['tiene_fic_global'] ?? 'NO') == 'SI') {
+        $estado_calculado = 'Cancelado';
+    } elseif ($es_transporte && ($a['activo_en_regular'] ?? 'NO') == 'SI') {
+        $estado_calculado = 'Cancelado';
+    } elseif (($a['contrato_aprendizaje'] ?? 'NO') == 'SI') {
+        $estado_calculado = 'Cancelado';
+    } elseif (($a['vinculo_laboral'] ?? 'NO') == 'SI') {
+        $estado_calculado = 'Cancelado';
+    }
+
+    // Sincronizar estado en BD si difería
+    if (trim((string)($a['estado_seguimiento'] ?? '')) !== $estado_calculado) {
+        $stmtSyncEstado->execute([$estado_calculado, $a['id']]);
+        $a['estado_seguimiento'] = $estado_calculado;
+    }
+
+    // Incluir en la Planilla de Pago SENA únicamente a quienes CUMPLEN
+    if ($estado_calculado === 'Cumple') {
+        $aprendices[] = $a;
+    }
+}
 
 // 3. Buscar plantilla exacta
 $rutas_posibles = [
@@ -189,7 +255,7 @@ $xpath->registerNamespace('main', $ns);
 
 $meses_es = ['01' => 'ENERO', '02' => 'FEBRERO', '03' => 'MARZO', '04' => 'ABRIL', '05' => 'MAYO', '06' => 'JUNIO', '07' => 'JULIO', '08' => 'AGOSTO', '09' => 'SEPTIEMBRE', '10' => 'OCTUBRE', '11' => 'NOVIEMBRE', '12' => 'DICIEMBRE'];
 $partes_mes = explode('-', $datos_mes['mes']);
-$nombre_mes_pago = $meses_es[$partes_mes[1]] ?? strtoupper($datos_mes['mes']);
+$nombre_mes_pago = (isset($partes_mes[1]) && isset($meses_es[$partes_mes[1]])) ? $meses_es[$partes_mes[1]] : strtoupper($datos_mes['mes']);
 $mes_actual_es = $meses_es[date('m')] ?? strtoupper(date('F'));
 
 $setCellText = function($cellNode, $text) use ($dom, $ns) {

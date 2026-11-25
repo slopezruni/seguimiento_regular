@@ -206,6 +206,39 @@ if (!$mes_id) {
             $datos_mes['valor_pagado'] = $_POST['valor_ejecutado']; 
         }
 
+        // EDITAR INFORMACIÓN DE APRENDIZ CARGADO EN EL MES
+        if (isset($_POST['editar_aprendiz_mes'])) {
+            $aprendiz_edit_id = (int)$_POST['aprendiz_id'];
+            $tipo_edit = strtoupper(trim($_POST['tipo_documento'] ?? 'CC'));
+            $doc_edit = preg_replace('/[^0-9]/', '', $_POST['documento'] ?? '');
+            $nombre_edit = strtoupper(trim(preg_replace('/\s+/', ' ', $_POST['nombre'] ?? '')));
+            $ficha_edit = preg_replace('/[^0-9]/', '', $_POST['ficha'] ?? '');
+
+            if ($aprendiz_edit_id > 0 && !empty($doc_edit) && !empty($nombre_edit) && !empty($ficha_edit)) {
+                $stmtCheckGlobal->execute([$doc_edit, $convocatoria_id, $convocatoria_data['apoyo_id']]);
+                $otraConv = $stmtCheckGlobal->fetch(PDO::FETCH_ASSOC);
+
+                $stmtCheckMesEdit = $pdo->prepare("SELECT id FROM aprendices_mes WHERE mes_id = ? AND TRIM(documento) = TRIM(?) AND id != ?");
+                $stmtCheckMesEdit->execute([$mes_id, $doc_edit, $aprendiz_edit_id]);
+
+                if ($otraConv) {
+                    echo "<div class='alert alert-danger mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-triangle-fill me-2'></i> No se actualizó: el documento {$doc_edit} ya está activo en la convocatoria '{$otraConv['nombre']}'.</div>";
+                } elseif ($stmtCheckMesEdit->rowCount() > 0) {
+                    echo "<div class='alert alert-warning mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-circle-fill me-2'></i> No se actualizó: ya existe otro aprendiz con el documento {$doc_edit} en este mes.</div>";
+                } else {
+                    try {
+                        $stmtUpdAp = $pdo->prepare("UPDATE aprendices_mes SET tipo_documento = ?, documento = ?, nombre = ?, ficha = ? WHERE id = ? AND mes_id = ?");
+                        $stmtUpdAp->execute([$tipo_edit, $doc_edit, $nombre_edit, $ficha_edit, $aprendiz_edit_id, $mes_id]);
+                        echo "<div class='alert alert-success mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-check-circle-fill me-2'></i> Información de <b>" . htmlspecialchars($nombre_edit) . "</b> actualizada correctamente.</div>";
+                    } catch (PDOException $e) {
+                        echo "<div class='alert alert-danger mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-triangle-fill me-2'></i> Error al actualizar el aprendiz: " . htmlspecialchars($e->getMessage()) . "</div>";
+                    }
+                }
+            } else {
+                echo "<div class='alert alert-warning mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-circle-fill me-2'></i> Todos los campos (Tipo, Documento, Nombre y Ficha) son obligatorios.</div>";
+            }
+        }
+
         // CARGA MANUAL
         if (isset($_POST['guardar_manual'])) {
             $doc_manual = preg_replace('/[^0-9]/', '', $_POST['documento']);
@@ -334,7 +367,7 @@ if (!$mes_id) {
         <!-- CABECERA PLANILLA GOVTECH -->
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
             <div>
-                <div class="d-inline-flex align-items-center gap-1 bg-success bg-opacity-10 border border-success border-opacity-25 text-white rounded-pill px-2 py-0 mb-1 fw-bold" style="font-size: 0.72rem;">
+                <div class="d-inline-flex align-items-center gap-1 bg-success bg-opacity-10 border border-success border-opacity-25 text-success rounded-pill px-2 py-0 mb-1 fw-bold" style="font-size: 0.72rem;">
                     <i class="bi bi-shield-check"></i> Planilla de Ejecución Oficial
                 </div>
                 <h4 class="fw-extrabold text-dark mb-0 titulo-modulo">Periodo: <?= htmlspecialchars($datos_mes['mes']) ?></h4>
@@ -344,6 +377,12 @@ if (!$mes_id) {
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2">
+                <?php if (!$es_visualizador && count($aprendices) > 0): ?>
+                <button type="button" class="btn btn-sm btn-primary fw-bold rounded-pill px-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalEditarAprendices">
+                    <i class="bi bi-pencil-square me-1"></i> Editar Aprendices
+                </button>
+                <?php endif; ?>
+
                 <div class="dropdown">
                     <button class="btn btn-sm btn-success fw-bold rounded-pill px-3 shadow-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="bi bi-file-earmark-excel-fill me-1"></i> Reportes Excel
@@ -696,9 +735,122 @@ if (!$mes_id) {
                 </div>
             </div>
         </div>
+
+        <?php if (!$es_visualizador && count($aprendices) > 0): ?>
+        <!-- MODAL: EDITAR INFORMACIÓN DE APRENDICES DEL MES -->
+        <div class="modal fade" id="modalEditarAprendices" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content border-0 shadow">
+                    <div class="modal-header bg-primary text-white py-2">
+                        <h6 class="modal-title fw-bold mb-0">
+                            <i class="bi bi-pencil-square me-2"></i> Editar Información de Aprendices (<?= htmlspecialchars($datos_mes['mes']) ?>)
+                        </h6>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body p-3">
+                        <!-- FORMULARIO DE EDICIÓN (SE ACTIVA AL SELECCIONAR UN APRENDIZ) -->
+                        <div id="panelFormularioEdicion" class="card border-primary bg-light mb-3 d-none shadow-sm">
+                            <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold d-flex justify-content-between align-items-center py-2">
+                                <span><i class="bi bi-person-gear me-1"></i> Editando: <span id="lblAprendizEditando" class="text-dark"></span></span>
+                                <button type="button" class="btn-close" style="font-size: 0.7rem;" onclick="cerrarFormEdicion()" title="Cerrar edición"></button>
+                            </div>
+                            <div class="card-body p-3">
+                                <form method="POST">
+                                    <input type="hidden" name="aprendiz_id" id="edit_ap_id">
+                                    <div class="row g-2">
+                                        <div class="col-md-2">
+                                            <label class="form-label fw-bold small mb-1">Tipo Doc.</label>
+                                            <select name="tipo_documento" id="edit_ap_tipo" class="form-select form-select-sm" required>
+                                                <option value="CC">CC</option>
+                                                <option value="TI">TI</option>
+                                                <option value="PPT">PPT</option>
+                                                <option value="CE">CE</option>
+                                                <option value="PEP">PEP</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-bold small mb-1">Documento</label>
+                                            <input type="text" name="documento" id="edit_ap_documento" class="form-control form-control-sm fw-bold" inputmode="numeric" required>
+                                        </div>
+                                        <div class="col-md-5">
+                                            <label class="form-label fw-bold small mb-1">Nombre Completo</label>
+                                            <input type="text" name="nombre" id="edit_ap_nombre" class="form-control form-control-sm text-uppercase" required>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label fw-bold small mb-1">Ficha</label>
+                                            <input type="text" name="ficha" id="edit_ap_ficha" class="form-control form-control-sm fw-bold" inputmode="numeric" required>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex justify-content-end gap-2 mt-3">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="cerrarFormEdicion()">Cancelar</button>
+                                        <button type="submit" name="editar_aprendiz_mes" class="btn btn-sm btn-success fw-bold px-3">
+                                            <i class="bi bi-check-lg me-1"></i> Guardar Cambios
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- BUSCADOR DENTRO DEL MODAL -->
+                        <div class="input-group input-group-sm mb-2">
+                            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" id="buscadorModalEditar" class="form-control" placeholder="Buscar aprendiz en la lista por nombre, documento o ficha...">
+                        </div>
+
+                        <!-- LISTA DE APRENDICES CARGADOS EN EL MES -->
+                        <div class="table-responsive border rounded" style="max-height: 360px;">
+                            <table class="table table-hover table-sm align-middle mb-0" style="font-size: 0.78rem;">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th class="text-center" style="width: 5%;">#</th>
+                                        <th class="text-center" style="width: 8%;">Tipo</th>
+                                        <th style="width: 17%;">Documento</th>
+                                        <th style="width: 44%;">Nombre Completo</th>
+                                        <th style="width: 13%;">Ficha</th>
+                                        <th class="text-center" style="width: 13%;">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php $idxModal = 1; foreach ($aprendices as $apModal): ?>
+                                    <tr class="fila-modal-editar" data-busqueda="<?= strtolower(htmlspecialchars($apModal['nombre'] . ' ' . $apModal['documento'] . ' ' . $apModal['ficha'])) ?>">
+                                        <td class="text-center text-muted fw-bold"><?= $idxModal++ ?></td>
+                                        <td class="text-center"><span class="badge bg-light text-dark border"><?= htmlspecialchars($apModal['tipo_documento']) ?></span></td>
+                                        <td class="fw-bold"><?= htmlspecialchars($apModal['documento']) ?></td>
+                                        <td class="fw-semibold"><?= htmlspecialchars($apModal['nombre']) ?></td>
+                                        <td><span class="badge bg-secondary bg-opacity-10 text-dark border"><?= htmlspecialchars($apModal['ficha']) ?></span></td>
+                                        <td class="text-center">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-primary py-0 px-2 fw-bold btn-seleccionar-ap-edit"
+                                                    data-id="<?= $apModal['id'] ?>"
+                                                    data-tipo="<?= htmlspecialchars($apModal['tipo_documento']) ?>"
+                                                    data-documento="<?= htmlspecialchars($apModal['documento']) ?>"
+                                                    data-nombre="<?= htmlspecialchars($apModal['nombre']) ?>"
+                                                    data-ficha="<?= htmlspecialchars($apModal['ficha']) ?>">
+                                                <i class="bi bi-pencil"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2 bg-light">
+                        <span class="text-muted small me-auto">Total cargados en este mes: <strong><?= count($aprendices) ?></strong></span>
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 
     <script>
+    function cerrarFormEdicion() {
+        const panel = document.getElementById('panelFormularioEdicion');
+        if (panel) panel.classList.add('d-none');
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         const inputTexto = document.getElementById('filtroTexto');
         const selectEstado = document.getElementById('filtroEstado');
@@ -745,6 +897,49 @@ if (!$mes_id) {
             filtrarTabla();
             inputTexto.focus();
         });
+
+        // Lógica del Modal de Edición de Aprendices del Mes
+        const botonesEditarAp = document.querySelectorAll('.btn-seleccionar-ap-edit');
+        const panelEdicion = document.getElementById('panelFormularioEdicion');
+
+        botonesEditarAp.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const id = this.dataset.id;
+                const tipo = (this.dataset.tipo || 'CC').toUpperCase();
+                const documento = this.dataset.documento || '';
+                const nombre = this.dataset.nombre || '';
+                const ficha = this.dataset.ficha || '';
+
+                document.getElementById('edit_ap_id').value = id;
+                document.getElementById('edit_ap_documento').value = documento;
+                document.getElementById('edit_ap_nombre').value = nombre;
+                document.getElementById('edit_ap_ficha').value = ficha;
+                document.getElementById('lblAprendizEditando').textContent = nombre;
+
+                const selectTipo = document.getElementById('edit_ap_tipo');
+                if (![...selectTipo.options].some(opt => opt.value === tipo)) {
+                    const optExtra = new Option(tipo, tipo);
+                    selectTipo.add(optExtra);
+                }
+                selectTipo.value = tipo;
+
+                if (panelEdicion) {
+                    panelEdicion.classList.remove('d-none');
+                    panelEdicion.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        });
+
+        const buscadorModal = document.getElementById('buscadorModalEditar');
+        if (buscadorModal) {
+            buscadorModal.addEventListener('input', function () {
+                const q = this.value.toLowerCase().trim();
+                document.querySelectorAll('.fila-modal-editar').forEach(function (fila) {
+                    const txt = fila.getAttribute('data-busqueda') || '';
+                    fila.style.display = (q === '' || txt.includes(q)) ? '' : 'none';
+                });
+            });
+        }
     });
     </script>
 

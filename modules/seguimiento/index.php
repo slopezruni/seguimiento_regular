@@ -6,7 +6,9 @@ $convocatoria_id = $_GET['convocatoria_id'] ?? null;
 $mes_id = $_GET['mes_id'] ?? null;
 
 // Identificar el rol del usuario actual desde la sesión
-$es_visualizador = (isset($_SESSION['rol']) && $_SESSION['rol'] === 'visualizador');
+$rol_usuario = strtolower(trim($_SESSION['rol'] ?? 'visualizador'));
+$es_visualizador = ($rol_usuario === 'visualizador');
+$es_admin = ($rol_usuario === 'admin');
 
 if (!$convocatoria_id) {
     echo "<div class='container-fluid px-3 py-4'><div class='alert alert-danger fw-bold border-0 shadow-sm small'><i class='bi bi-exclamation-triangle-fill me-2'></i> Selecciona una convocatoria en el menú lateral.</div></div>";
@@ -97,6 +99,7 @@ $es_transporte = (stripos($convocatoria_data['apoyo_nombre'], 'transporte') !== 
 // ====================================================================
 if (!$mes_id) {
     
+    // CREAR NUEVO MES
     if (!$es_visualizador && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_mes'])) {
         try {
             $stmt = $pdo->prepare("INSERT INTO meses_seguimiento (convocatoria_id, mes) VALUES (?, ?)");
@@ -104,6 +107,36 @@ if (!$mes_id) {
             $mensaje = "<div class='alert alert-success border-0 shadow-sm fw-bold mb-3 py-2 small'><i class='bi bi-check-circle-fill me-2'></i> Mes de seguimiento creado correctamente.</div>";
         } catch (PDOException $e) {
             $mensaje = "<div class='alert alert-warning border-0 shadow-sm fw-bold mb-3 py-2 small'><i class='bi bi-exclamation-circle-fill me-2'></i> Ese mes ya existe en esta convocatoria.</div>";
+        }
+    }
+
+    // ELIMINAR MES CREADO (EXCLUSIVO ADMINISTRADOR)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eliminar_mes'])) {
+        if (!$es_admin) {
+            $mensaje = "<div class='alert alert-danger border-0 shadow-sm fw-bold mb-3 py-2 small'><i class='bi bi-shield-lock-fill me-2'></i> Acceso denegado: solo el usuario administrador puede eliminar meses.</div>";
+        } else {
+            $mes_eliminar_id = (int)($_POST['mes_eliminar_id'] ?? 0);
+            if ($mes_eliminar_id > 0) {
+                try {
+                    $pdo->beginTransaction();
+
+                    // 1. Eliminar los aprendices cargados en ese mes (evita bloqueo por llave foránea)
+                    $stmtDelApr = $pdo->prepare("DELETE FROM aprendices_mes WHERE mes_id = ?");
+                    $stmtDelApr->execute([$mes_eliminar_id]);
+
+                    // 2. Eliminar el mes perteneciente a la convocatoria actual
+                    $stmtDelMes = $pdo->prepare("DELETE FROM meses_seguimiento WHERE id = ? AND convocatoria_id = ?");
+                    $stmtDelMes->execute([$mes_eliminar_id, $convocatoria_id]);
+
+                    $pdo->commit();
+                    $mensaje = "<div class='alert alert-success border-0 shadow-sm fw-bold mb-3 py-2 small'><i class='bi bi-trash3-fill me-2'></i> Mes eliminado correctamente junto con los registros de su planilla.</div>";
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $mensaje = "<div class='alert alert-danger border-0 shadow-sm fw-bold mb-3 py-2 small'><i class='bi bi-exclamation-triangle-fill me-2'></i> No se pudo eliminar el mes: " . htmlspecialchars($e->getMessage()) . "</div>";
+                }
+            }
         }
     }
 
@@ -149,7 +182,7 @@ if (!$mes_id) {
                                     <tr>
                                         <th class="ps-3 py-2">Periodo (Mes)</th>
                                         <th class="py-2">Valor Reportado (Ejecución)</th>
-                                        <th class="text-center pe-3 py-2">Acción</th>
+                                        <th class="text-center pe-3 py-2">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -163,9 +196,20 @@ if (!$mes_id) {
                                                 <?= $m['valor_pagado'] > 0 ? '$'.number_format($m['valor_pagado'], 2, ',', '.') : '<span class="badge bg-warning text-dark">Pendiente de Reporte</span>' ?>
                                             </td>
                                             <td class="text-center pe-3">
-                                                <a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-success fw-bold rounded-pill px-3 shadow-sm py-1">
-                                                    Abrir Planilla <i class="bi bi-arrow-right-short align-middle"></i>
-                                                </a>
+                                                <div class="d-inline-flex align-items-center justify-content-center gap-1">
+                                                    <a href="?convocatoria_id=<?= $convocatoria_id ?>&mes_id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-success fw-bold rounded-pill px-3 shadow-sm py-1">
+                                                        Abrir Planilla <i class="bi bi-arrow-right-short align-middle"></i>
+                                                    </a>
+
+                                                    <?php if ($es_admin): ?>
+                                                    <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar el mes <?= htmlspecialchars($m['mes']) ?>?\n\nEsta acción borrará permanentemente la planilla de aprendices y el valor reportado de este periodo.');">
+                                                        <input type="hidden" name="mes_eliminar_id" value="<?= $m['id'] ?>">
+                                                        <button type="submit" name="eliminar_mes" class="btn btn-sm btn-outline-danger rounded-circle shadow-sm" style="width: 28px; height: 28px; padding: 0;" title="Eliminar mes (Solo Administrador)">
+                                                            <i class="bi bi-trash3-fill"></i>
+                                                        </button>
+                                                    </form>
+                                                    <?php endif; ?>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>

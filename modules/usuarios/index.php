@@ -10,6 +10,7 @@ if ($rol_actual !== 'admin') {
 }
 
 $mensaje = "";
+$id_sesion = (int)($_SESSION['usuario_id'] ?? $_SESSION['id'] ?? $_SESSION['user_id'] ?? 0);
 
 // 1. CREAR USUARIO
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_usuario'])) {
@@ -25,7 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_usuario'])) {
     if (!empty($nombre) && !empty($email) && !empty($password)) {
         try {
             $pass_hash = password_hash($password, PASSWORD_BCRYPT);
-            // Usamos las columnas exactas de tu base de datos: usuario, nombre_completo, correo_sena, password, rol, apoyo_id
             $stmt = $pdo->prepare("INSERT INTO usuarios (usuario, nombre_completo, correo_sena, password, rol, apoyo_id) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$usuario_alias, $nombre, $email, $pass_hash, $rol, $apoyo_id]);
             $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Usuario creado exitosamente.</div>";
@@ -47,12 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_usuario'])) {
 
     try {
         if (!empty($_POST['password'])) {
-            // Si escribió contraseña, la actualizamos
             $pass_hash = password_hash($_POST['password'], PASSWORD_BCRYPT);
             $stmt = $pdo->prepare("UPDATE usuarios SET usuario = ?, nombre_completo = ?, correo_sena = ?, password = ?, rol = ?, apoyo_id = ? WHERE id = ?");
             $stmt->execute([$usuario_alias, $nombre, $email, $pass_hash, $rol, $apoyo_id, $id]);
         } else {
-            // Si dejó la contraseña en blanco, no la tocamos
             $stmt = $pdo->prepare("UPDATE usuarios SET usuario = ?, nombre_completo = ?, correo_sena = ?, rol = ?, apoyo_id = ? WHERE id = ?");
             $stmt->execute([$usuario_alias, $nombre, $email, $rol, $apoyo_id, $id]);
         }
@@ -62,10 +60,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_usuario'])) {
     }
 }
 
-// 3. Listar tipos de apoyo disponibles
+// 3. ELIMINAR USUARIO
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eliminar_usuario'])) {
+    $id = (int)$_POST['usuario_id'];
+
+    if ($id > 0 && $id === $id_sesion) {
+        $mensaje = "<div class='alert alert-warning fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> No puedes eliminar tu propia cuenta mientras tienes la sesión activa.</div>";
+    } elseif ($id > 0) {
+        try {
+            // Verificar que no sea el último administrador del sistema
+            $stmtCheck = $pdo->prepare("SELECT rol FROM usuarios WHERE id = ?");
+            $stmtCheck->execute([$id]);
+            $rolTarget = $stmtCheck->fetchColumn();
+
+            if ($rolTarget === 'admin') {
+                $totalAdmins = (int)$pdo->query("SELECT COUNT(*) FROM usuarios WHERE rol = 'admin'")->fetchColumn();
+                if ($totalAdmins <= 1) {
+                    throw new Exception("No se puede eliminar el único administrador activo del sistema.");
+                }
+            }
+
+            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = ?");
+            $stmt->execute([$id]);
+            $mensaje = "<div class='alert alert-success fw-bold'><i class='bi bi-check-circle-fill'></i> Usuario eliminado correctamente.</div>";
+        } catch (PDOException $e) {
+            if ($e->getCode() == '23000') {
+                $mensaje = "<div class='alert alert-danger fw-bold'><i class='bi bi-shield-lock-fill'></i> No se puede eliminar este usuario porque tiene registros asociados en el sistema.</div>";
+            } else {
+                $mensaje = "<div class='alert alert-danger fw-bold'>Error técnico al eliminar: " . htmlspecialchars($e->getMessage()) . "</div>";
+            }
+        } catch (Exception $e) {
+            $mensaje = "<div class='alert alert-warning fw-bold'><i class='bi bi-exclamation-triangle-fill'></i> " . htmlspecialchars($e->getMessage()) . "</div>";
+        }
+    }
+}
+
+// 4. Listar tipos de apoyo disponibles
 $apoyos_list = $pdo->query("SELECT id, nombre FROM tipos_apoyo WHERE estado = 'activo' ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-// 4. Listar usuarios con sus apoyos
+// 5. Listar usuarios con sus apoyos
 $usuarios = $pdo->query("
     SELECT u.*, a.nombre AS nombre_apoyo 
     FROM usuarios u 
@@ -133,6 +166,16 @@ $usuarios = $pdo->query("
                                             data-apoyo="<?= htmlspecialchars($u['apoyo_id'] ?? '') ?>">
                                         <i class="bi bi-pencil-square"></i> Editar
                                     </button>
+
+                                    <?php if ((int)$u['id'] !== $id_sesion): ?>
+                                        <button type="button" class="btn btn-sm btn-outline-danger fw-bold btn-eliminar-user ms-1"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#modalEliminarUsuario"
+                                                data-id="<?= $u['id'] ?>"
+                                                data-nombre="<?= htmlspecialchars($u['nombre_completo'] ?? '') ?>">
+                                            <i class="bi bi-trash-fill"></i> Eliminar
+                                        </button>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -240,6 +283,29 @@ $usuarios = $pdo->query("
     </div>
 </div>
 
+<!-- MODAL: ELIMINAR USUARIO -->
+<div class="modal fade" id="modalEliminarUsuario" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="usuario_id" id="delete_user_id">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i> Eliminar Usuario</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">¿Estás seguro de que deseas eliminar permanentemente al usuario <strong id="delete_user_nombre"></strong>?</p>
+                    <small class="text-muted">Esta acción no se puede deshacer.</small>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" name="eliminar_usuario" class="btn btn-danger btn-sm fw-bold">Sí, Eliminar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 function toggleApoyoSelect(rol, targetId) {
     const contenedor = document.getElementById(targetId);
@@ -249,8 +315,9 @@ function toggleApoyoSelect(rol, targetId) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    const botones = document.querySelectorAll('.btn-editar-user');
-    botones.forEach(function(btn) {
+    // Cargar datos en modal de edición
+    const botonesEditar = document.querySelectorAll('.btn-editar-user');
+    botonesEditar.forEach(function(btn) {
         btn.addEventListener('click', function() {
             document.getElementById('edit_user_id').value = this.dataset.id;
             document.getElementById('edit_user_nombre').value = this.dataset.nombre;
@@ -258,6 +325,15 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('edit_user_rol').value = this.dataset.rol;
             document.getElementById('edit_user_apoyo').value = this.dataset.apoyo;
             toggleApoyoSelect(this.dataset.rol, 'caja_apoyo_edit');
+        });
+    });
+
+    // Cargar datos en modal de eliminación
+    const botonesEliminar = document.querySelectorAll('.btn-eliminar-user');
+    botonesEliminar.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('delete_user_id').value = this.dataset.id;
+            document.getElementById('delete_user_nombre').textContent = this.dataset.nombre;
         });
     });
 });

@@ -34,14 +34,16 @@ $ejecucionTotal = (float)($stmtEjec->fetchColumn() ?: 0);
 $saldoTotalDisponible = $presupuestoTotal - $ejecucionTotal;
 $porcentajeEjecucion = ($presupuestoTotal > 0) ? min(100, round(($ejecucionTotal / $presupuestoTotal) * 100, 1)) : 0;
 
-// Desglose financiero por convocatoria para la tabla
+// Desglose financiero por convocatoria para la tabla (incluyendo el nombre del tipo de apoyo)
 $stmtFinanzas = $pdo->prepare("
     SELECT c.id, c.nombre, c.cupos, c.presupuesto, 
+           a.nombre AS nombre_apoyo,
            COALESCE(SUM(m.valor_pagado), 0) AS total_ejecutado
     FROM convocatorias c
+    LEFT JOIN tipos_apoyo a ON c.apoyo_id = a.id
     LEFT JOIN meses_seguimiento m ON c.id = m.convocatoria_id
     WHERE c.apoyo_id = ?
-    GROUP BY c.id, c.nombre, c.cupos, c.presupuesto
+    GROUP BY c.id, c.nombre, c.cupos, c.presupuesto, a.nombre
     ORDER BY c.id DESC
 ");
 $stmtFinanzas->execute([$apoyo_activo_id]);
@@ -280,7 +282,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
         </div>
         <div class="input-group input-group-sm" style="max-width: 320px;">
             <span class="input-group-text bg-white border-0"><i class="bi bi-search text-muted"></i></span>
-            <input type="text" id="buscadorConvDashboard" class="form-control border-0 shadow-none" placeholder="Filtrar convocatoria en tiempo real...">
+            <input type="text" id="buscadorConvDashboard" class="form-control border-0 shadow-none" placeholder="Filtrar convocatoria o apoyo...">
         </div>
     </div>
     <div class="card-body p-0">
@@ -289,18 +291,19 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
                 <thead class="table-light">
                     <tr>
                         <th class="ps-4">Convocatoria</th>
+                        <th>Apoyo Socioeconómico</th>
                         <th class="text-center">Cupos</th>
                         <th class="text-end">Presupuesto Asignado</th>
                         <th class="text-end">Total Ejecutado</th>
                         <th class="text-end">Saldo Disponible</th>
-                        <th class="text-center" style="width: 22%;">Progreso de Ejecución</th>
+                        <th class="text-center" style="width: 20%;">Progreso de Ejecución</th>
                         <th class="text-center pe-4">Acción Rápida</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (count($desgloseConvocatorias) === 0): ?>
                         <tr>
-                            <td colspan="7" class="text-center py-5 text-muted">
+                            <td colspan="8" class="text-center py-5 text-muted">
                                 <i class="bi bi-folder-x fs-2 d-block mb-2"></i>
                                 No hay convocatorias registradas para mostrar ejecución.
                             </td>
@@ -321,6 +324,11 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
                         <td class="ps-4">
                             <div class="fw-bold text-dark text-uppercase nombre-conv-item"><?= htmlspecialchars($conv['nombre']) ?></div>
                             <span class="text-muted" style="font-size: 0.72rem;">ID #<?= $conv['id'] ?></span>
+                        </td>
+                        <td>
+                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1 fw-semibold apoyo-conv-item">
+                                <i class="bi bi-award-fill me-1"></i><?= htmlspecialchars($conv['nombre_apoyo'] ?? 'Sin apoyo asignado') ?>
+                            </span>
                         </td>
                         <td class="text-center">
                             <span class="badge bg-secondary bg-opacity-10 text-dark border px-2 py-1 fw-bold">
@@ -360,14 +368,15 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
 <!-- SCRIPTS DE GRÁFICOS E INTERACTIVIDAD -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 1. Filtro rápido de la tabla de convocatorias
+    // 1. Filtro rápido de la tabla de convocatorias y apoyos
     const inputBuscador = document.getElementById('buscadorConvDashboard');
     if (inputBuscador) {
         inputBuscador.addEventListener('input', function() {
             const termino = this.value.toLowerCase().trim();
             document.querySelectorAll('.fila-conv-dash').forEach(function(fila) {
                 const nombre = fila.querySelector('.nombre-conv-item').textContent.toLowerCase();
-                fila.style.display = nombre.includes(termino) ? '' : 'none';
+                const apoyo = fila.querySelector('.apoyo-conv-item').textContent.toLowerCase();
+                fila.style.display = (nombre.includes(termino) || apoyo.includes(termino)) ? '' : 'none';
             });
         });
     }

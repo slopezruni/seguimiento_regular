@@ -122,7 +122,7 @@ $nombre_apoyo_actual = $stmtApoyoNom->fetchColumn() ?: 'Apoyo';
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <a href="/seguimiento-regular/index.php" class="btn btn-outline-secondary fw-bold rounded-pill px-4 shadow-sm">
+            <a href="/seguimiento_regular/index.php" class="btn btn-outline-secondary fw-bold rounded-pill px-4 shadow-sm">
                 <i class="bi bi-arrow-left me-1"></i> Dashboard
             </a>
         </div>
@@ -209,7 +209,7 @@ $nombre_apoyo_actual = $stmtApoyoNom->fetchColumn() ?: 'Apoyo';
                                         <td class="text-end fw-bold text-success"><?= !empty($c['presupuesto']) ? '$'.number_format($c['presupuesto'], 0, ',', '.') : '<span class="badge bg-warning text-dark">Sin Asignar</span>' ?></td>
                                         <td class="text-center pe-4">
                                             <div class="btn-group shadow-sm">
-                                                <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="btn btn-sm btn-success fw-bold" title="Abrir Planillas">
+                                                <a href="/seguimiento_regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="btn btn-sm btn-success fw-bold" title="Abrir Planillas">
                                                     <i class="bi bi-folder2-open"></i>
                                                 </a>
                                                 <?php if (!$es_visualizador): ?>

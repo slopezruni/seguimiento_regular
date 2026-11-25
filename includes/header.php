@@ -4,7 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 if (!isset($_SESSION['user_id'])) {
-    header('Location: /seguimiento-regular/login.php');
+    header('Location: /seguimiento_regular/login.php');
     exit;
 }
 
@@ -61,7 +61,7 @@ if (isset($pdo)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SENA | Gestión de Apoyos Socioeconómicos</title>
-    <link rel="icon" type="image/webp" href="/seguimiento-regular/assets/img/logo_sena.webp">
+    <link rel="icon" type="image/webp" href="/seguimiento_regular/assets/img/logo_sena.webp">
     <!-- Bootstrap 5.3 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
@@ -69,7 +69,7 @@ if (isset($pdo)) {
     <!-- Chart.js para gráficos interactivos en el Dashboard -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Estilos Institucionales Renovados -->
-    <link rel="stylesheet" href="/seguimiento-regular/assets/css/sena.css?v=2.0">
+    <link rel="stylesheet" href="/seguimiento_regular/assets/css/sena.css?v=2.0">
 </head>
 <body>
 <div class="d-flex" id="wrapper">
@@ -80,7 +80,7 @@ if (isset($pdo)) {
         <div class="sidebar-brand-box text-center">
             <div class="d-flex align-items-center justify-content-center gap-2">
                 <div class="bg-white rounded-circle p-1 d-flex align-items-center justify-content-center shadow-sm" style="width: 42px; height: 42px;">
-                    <img src="/seguimiento-regular/assets/img/logo_sena.webp" alt="Logo SENA" style="width: 30px; height: auto;">
+                    <img src="/seguimiento_regular/assets/img/logo_sena.webp" alt="Logo SENA" style="width: 30px; height: auto;">
                 </div>
                 <div class="text-start">
                     <div class="fw-bolder fs-5 text-white lh-1">SENA</div>
@@ -116,11 +116,11 @@ if (isset($pdo)) {
                 Módulos Operativos
             </div>
 
-            <a href="/seguimiento-regular/index.php" class="sidebar-link <?= (strpos($uri_actual, '/seguimiento-regular/index.php') !== false || $uri_actual === '/seguimiento-regular/') ? 'active' : '' ?>">
+            <a href="/seguimiento_regular/index.php" class="sidebar-link <?= (strpos($uri_actual, '/seguimiento_regular/index.php') !== false || $uri_actual === '/seguimiento_regular/') ? 'active' : '' ?>">
                 <i class="bi bi-grid-1x2-fill me-2 text-success"></i> Dashboard General
             </a>
             
-            <a href="/seguimiento-regular/modules/convocatorias/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/convocatorias/') !== false ? 'active' : '' ?>">
+            <a href="/seguimiento_regular/modules/convocatorias/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/convocatorias/') !== false ? 'active' : '' ?>">
                 <i class="bi bi-folder2-open me-2 text-success"></i> Convocatorias
             </a>
 
@@ -137,7 +137,7 @@ if (isset($pdo)) {
                     <?php foreach ($lista_convocatorias as $c): 
                         $conv_activa = (strpos($uri_actual, '/modules/seguimiento/') !== false && isset($_GET['convocatoria_id']) && $_GET['convocatoria_id'] == $c['id']);
                     ?>
-                        <a href="/seguimiento-regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="sidebar-link submenu-link <?= $conv_activa ? 'active' : '' ?>">
+                        <a href="/seguimiento_regular/modules/seguimiento/index.php?convocatoria_id=<?= $c['id'] ?>" class="sidebar-link submenu-link <?= $conv_activa ? 'active' : '' ?>">
                             <i class="bi bi-arrow-return-right me-2 text-success"></i> 
                             <span class="text-truncate"><?= htmlspecialchars($c['nombre']) ?></span>
                         </a>
@@ -145,19 +145,19 @@ if (isset($pdo)) {
                 </div>
             </div>
 
-            <a href="/seguimiento-regular/modules/fichas/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fichas/') !== false ? 'active' : '' ?>">
-                <i class="bi bi-diagram-3-fill me-2 text-success"></i> Distribución Fichas
+            <a href="//modules/fichas/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fichas/') !== false ? 'active' : '' ?>">
+                <i class="bi bi-diaseguimiento_regulargram-3-fill me-2 text-success"></i> Distribución Fichas
             </a>
 
-            <a href="/seguimiento-regular/modules/df14/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/df14/') !== false ? 'active' : '' ?>">
+            <a href="/seguimiento_regular/modules/df14/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/df14/') !== false ? 'active' : '' ?>">
                <i class="bi bi-database-check me-2 text-success"></i> Base Mágica DF-14
             </a>
             
-            <a href="/seguimiento-regular/modules/fic/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fic/') !== false ? 'active' : '' ?>">
+            <a href="/seguimiento_regular/modules/fic/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fic/') !== false ? 'active' : '' ?>">
                 <i class="bi bi-building-fill-gear me-2 text-success"></i> Base de Datos FIC
             </a>
 
-            <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/ciberbanco/') !== false ? 'active' : '' ?>">
+            <a href="/seguimiento_regular/modules/ciberbanco/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/ciberbanco/') !== false ? 'active' : '' ?>">
                 <i class="bi bi-bank2 me-2 text-success"></i> Ciberbanco
             </a>
 
@@ -165,10 +165,10 @@ if (isset($pdo)) {
                 <div class="px-3 pt-3 pb-1 text-white-50 fw-bold" style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.8px;">
                     Administración
                 </div>
-                <a href="/seguimiento-regular/modules/apoyos/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/apoyos/') !== false ? 'active' : '' ?>">
+                <a href="/seguimiento_regular/modules/apoyos/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/apoyos/') !== false ? 'active' : '' ?>">
                     <i class="bi bi-collection-fill me-2 text-success"></i> Gestión de Apoyos
                 </a>
-                <a href="/seguimiento-regular/modules/usuarios/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/usuarios/') !== false ? 'active' : '' ?>">
+                <a href="/seguimiento_regular/modules/usuarios/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/usuarios/') !== false ? 'active' : '' ?>">
                     <i class="bi bi-people-fill me-2 text-success"></i> Usuarios y Roles
                 </a>
             <?php endif; ?>
@@ -210,7 +210,7 @@ if (isset($pdo)) {
                         </span>
                     </div>
 
-                    <a href="/seguimiento-regular/logout.php" class="btn btn-outline-danger btn-sm fw-bold rounded-pill px-3">
+                    <a href="/seguimiento_regular/logout.php" class="btn btn-outline-danger btn-sm fw-bold rounded-pill px-3">
                         <i class="bi bi-power"></i> <span class="d-none d-md-inline">Salir</span>
                     </a>
                 </div>

@@ -1,11 +1,11 @@
 # Seguimiento Regular con MySQL
 
 ## Instalacion
-1. Copia la carpeta en `C:\xampp\htdocs\seguimiento-regular-mysql`.
+1. Copia la carpeta en `C:\xampp\htdocs\seguimiento_regular-mysql`.
 2. Inicia Apache y MySQL en XAMPP.
 3. Abre `http://localhost/phpmyadmin`.
 4. En phpMyAdmin entra a **Importar**, selecciona `database/seguimiento_regular.sql` y ejecuta.
-5. Abre `http://localhost/seguimiento-regular/login.php`.
+5. Abre `http://localhost/seguimiento_regular/login.php`.
 
 ## Conexion
 La conexion esta en `config/database.php`. En XAMPP normalmente se usa usuario `root` sin contrasena. Si tu configuracion es diferente, modifica `DB_USER` y `DB_PASS`.
@@ -17,4 +17,4 @@ Crear commit - git commit -m "Agregada pantalla de productos"
 Subir a GitHub - git push
 
 ## Ajustes encontrados
-1. Hola
+1. Hola Mundo Jajaja

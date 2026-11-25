@@ -1,6 +1,6 @@
 <?php
 $host = '127.0.0.1';
-$port = '3307';      // Aquí especificamos el puerto 3307 que tienes en XAMPP
+$port = '3306';      // Aquí especificamos el puerto 3307 que tienes en XAMPP
 $dbname = 'seguimiento_regular';
 $username = 'root';
 $password = '';      // Sin contraseña

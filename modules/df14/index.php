@@ -183,7 +183,7 @@ function getBadgeAprendiz($estado) {
             </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <a href="/seguimiento-regular/index.php" class="btn btn-outline-secondary fw-bold rounded-pill px-4 shadow-sm">
+            <a href="/seguimiento_regular/index.php" class="btn btn-outline-secondary fw-bold rounded-pill px-4 shadow-sm">
                 <i class="bi bi-arrow-left me-1"></i> Dashboard
             </a>
         </div>

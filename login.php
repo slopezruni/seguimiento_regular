@@ -4,7 +4,7 @@ require_once 'config/database.php';
 
 // Si ya inició sesión, redirigir al panel principal
 if (isset($_SESSION['user_id'])) {
-    header('Location: /seguimiento-regular/index.php');
+    header('Location: /seguimiento_regular/index.php');
     exit;
 }
 
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtHash->execute([$nuevo_hash, $usuario['id']]);
             }
 
-            header('Location: /seguimiento-regular/index.php');
+            header('Location: /seguimiento_regular/index.php');
             exit;
         } else {
             $error = "Credenciales incorrectas. Verifica tu usuario/correo y contraseña.";
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Iniciar Sesión - Apoyos Socioeconómicos SENA</title>
-    <link rel="icon" type="image/webp" href="/seguimiento-regular/assets/img/logo_sena.webp">
+    <link rel="icon" type="image/webp" href="/seguimiento_regular/assets/img/logo_sena.webp">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="col-lg-5 brand-side d-none d-lg-flex">
         <div>
             <div class="bg-white rounded-3 p-2 d-inline-flex align-items-center justify-content-center mb-4 shadow-sm">
-                <img src="/seguimiento-regular/assets/img/logo_sena.webp" alt="SENA" style="width: 48px; height: auto;">
+                <img src="/seguimiento_regular/assets/img/logo_sena.webp" alt="SENA" style="width: 48px; height: auto;">
             </div>
             <h3 class="fw-extrabold mb-2">Sistema de Apoyos Socioeconómicos</h3>
             <p class="text-white-50 small mb-0">
@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Panel de Formulario Derecho -->
     <div class="col-lg-7 form-side">
         <div class="d-lg-none text-center mb-4">
-            <img src="/seguimiento-regular/assets/img/logo_sena.webp" alt="SENA" style="width: 50px; height: auto;" class="mb-2">
+            <img src="/seguimiento_regular/assets/img/logo_sena.webp" alt="SENA" style="width: 50px; height: auto;" class="mb-2">
             <h5 class="fw-bold text-dark mb-0">Gestión de Apoyos SENA</h5>
         </div>
 

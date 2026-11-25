@@ -117,13 +117,13 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
         </div>
         <div class="col-lg-5 text-lg-end mt-3 mt-lg-0">
             <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
-                <a href="/seguimiento-regular/modules/convocatorias/index.php" class="btn btn-light btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm text-dark">
+                <a href="//modules/convocatorias/index.php" class="btn btn-light btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm text-dark">
                     <i class="bi bi-plus-circle-fill text-success me-1"></i> Convocatorias
                 </a>
-                <a href="/seguimiento-regular/modules/ciberbanco/index.php" class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm border border-light border-opacity-25">
+                <a href="//modules/ciberbanco/index.php" class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm border border-light border-opacity-25">
                     <i class="bi bi-bank2 me-1"></i> Ciberbanco
                 </a>
-                <a href="/seguimiento-regular/modules/fic/index.php" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 rounded-3">
+                <a href="//modules/fic/index.php" class="btn btn-outline-light btn-sm fw-bold px-3 py-2 rounded-3">
                     <i class="bi bi-building-fill-gear me-1"></i> Base FIC
                 </a>
             </div>
@@ -135,7 +135,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
 <div class="row g-3 mb-4">
     <!-- Convocatorias -->
     <div class="col-xl-3 col-md-6">
-        <a href="/seguimiento-regular/modules/convocatorias/index.php" class="kpi-card-link h-100">
+        <a href="//modules/convocatorias/index.php" class="kpi-card-link h-100">
             <div class="card card-kpi bg-white h-100" style="border-left-color: #39A900;">
                 <div class="card-body d-flex justify-content-between align-items-center">
                     <div>
@@ -173,7 +173,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
 
     <!-- Fichas Registradas -->
     <div class="col-xl-3 col-md-6">
-        <a href="/seguimiento-regular/modules/fichas/index.php" class="kpi-card-link h-100">
+        <a href="//modules/fichas/index.php" class="kpi-card-link h-100">
             <div class="card card-kpi bg-white h-100" style="border-left-color: #0284C7;">
                 <div class="card-body d-flex justify-content-between align-items-center">
                     <div>
@@ -193,7 +193,7 @@ $desgloseConvocatorias = $stmtFinanzas->fetchAll(PDO::FETCH_ASSOC);
 
     <!-- Base FIC -->
     <div class="col-xl-3 col-md-6">
-        <a href="/seguimiento-regular/modules/fic/index.php" class="kpi-card-link h-100">
+        <a href="//modules/fic/index.php" class="kpi-card-link h-100">
             <div class="card card-kpi bg-white h-100" style="border-left-color: #DC2626;">
                 <div class="card-body d-flex justify-content-between align-items-center">
                     <div>

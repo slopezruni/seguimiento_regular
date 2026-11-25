@@ -52,7 +52,7 @@ $es_transporte = (stripos($convocatoria_data['apoyo_nombre'], 'transporte') !== 
     }
     .seguimiento-compacto #tablaAprendices {
         font-size: 0.77rem !important;
-        min-width: 960px !important;
+        min-width: 980px !important;
     }
     .seguimiento-compacto #tablaAprendices th {
         padding-top: 0.5rem !important;
@@ -198,6 +198,30 @@ if (!$mes_id) {
             $stmtEval->execute([$con, $vin, $prod, $_POST['aprendiz_id']]);
         }
 
+        // REGISTRAR NOVEDAD MANUAL DE CANCELACIÓN
+        if (isset($_POST['guardar_novedad_cancelar'])) {
+            $ap_nov_id = (int)($_POST['aprendiz_id'] ?? 0);
+            $motivo_nov = trim(preg_replace('/\s+/', ' ', $_POST['motivo_cancelacion'] ?? ''));
+
+            if ($ap_nov_id > 0 && !empty($motivo_nov)) {
+                $stmtNov = $pdo->prepare("UPDATE aprendices_mes SET motivo_cancelacion = ?, estado_seguimiento = 'Cancelado' WHERE id = ? AND mes_id = ?");
+                $stmtNov->execute([$motivo_nov, $ap_nov_id, $mes_id]);
+                echo "<div class='alert alert-danger mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-octagon-fill me-2'></i> Novedad registrada: el aprendiz quedó en estado <b>CANCELADO</b> por el motivo indicado.</div>";
+            } else {
+                echo "<div class='alert alert-warning mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-exclamation-circle-fill me-2'></i> Debes escribir el motivo de la cancelación.</div>";
+            }
+        }
+
+        // QUITAR NOVEDAD MANUAL DE CANCELACIÓN
+        if (isset($_POST['quitar_novedad_cancelar'])) {
+            $ap_nov_id = (int)($_POST['aprendiz_id'] ?? 0);
+            if ($ap_nov_id > 0) {
+                $stmtQuitarNov = $pdo->prepare("UPDATE aprendices_mes SET motivo_cancelacion = NULL WHERE id = ? AND mes_id = ?");
+                $stmtQuitarNov->execute([$ap_nov_id, $mes_id]);
+                echo "<div class='alert alert-success mt-2 py-2 small fw-bold border-0 shadow-sm px-3'><i class='bi bi-arrow-counterclockwise me-2'></i> Novedad manual retirada. El estado del aprendiz se recalculó automáticamente.</div>";
+            }
+        }
+
         // REPORTE FINANCIERO
         if (isset($_POST['reportar_valor'])) {
             $stmtUpdateValor = $pdo->prepare("UPDATE meses_seguimiento SET valor_pagado = ? WHERE id = ?");
@@ -334,7 +358,7 @@ if (!$mes_id) {
         }
     }
 
-    // CARGAR APRENDICES CRUZANDO CON FECHAS DE FICHA, FIC, REGULAR Y DF-14
+    // CARGAR APRENDICES CRUZANDO ESTRICTAMENTE POR DOCUMENTO + FICHA EN DF-14
     $sqlList = "SELECT a.*, 
                 (SELECT f.fecha_fin_lectiva FROM distribucion_fichas f 
                  WHERE TRIM(REPLACE(REPLACE(f.numero_ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci 
@@ -349,10 +373,12 @@ if (!$mes_id) {
                  AND t2.nombre LIKE '%Regular%') AS activo_en_regular,
                 (SELECT df.estado_aprendiz FROM base_df14 df 
                  WHERE TRIM(df.documento) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.documento, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
-                 ORDER BY (TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci) DESC, df.id DESC LIMIT 1) AS df_estado_aprendiz,
+                   AND TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
+                 ORDER BY df.id DESC LIMIT 1) AS df_estado_aprendiz,
                 (SELECT df.estado_ficha FROM base_df14 df 
                  WHERE TRIM(df.documento) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.documento, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
-                 ORDER BY (TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci) DESC, df.id DESC LIMIT 1) AS df_estado_ficha
+                   AND TRIM(df.ficha) COLLATE utf8mb4_unicode_ci = TRIM(REPLACE(REPLACE(a.ficha, '\r', ''), '\n', '')) COLLATE utf8mb4_unicode_ci
+                 ORDER BY df.id DESC LIMIT 1) AS df_estado_ficha
                 FROM aprendices_mes a 
                 LEFT JOIN base_fic fic ON TRIM(a.documento) COLLATE utf8mb4_unicode_ci = TRIM(fic.documento) COLLATE utf8mb4_unicode_ci 
                 WHERE a.mes_id = ?
@@ -441,7 +467,7 @@ if (!$mes_id) {
                             <div class="col-md-7">
                                 <div class="input-group input-group-sm">
                                     <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
-                                    <input type="text" id="filtroTexto" class="form-control border-start-0" placeholder="Buscar por Nombre, Documento o Ficha..." autofocus>
+                                    <input type="text" id="filtroTexto" class="form-control border-start-0" placeholder="Buscar por Nombre, Documento, Ficha o Motivo..." autofocus>
                                 </div>
                             </div>
                             <div class="col-md-5 d-flex gap-2">
@@ -528,15 +554,15 @@ if (!$mes_id) {
                             <col style="width: 3%;">  <!-- # -->
                             <col style="width: 5%;">  <!-- Tipo Doc -->
                             <col style="width: 9%;">  <!-- Documento -->
-                            <col style="width: 19%;"> <!-- Nombre Completo -->
+                            <col style="width: 18%;"> <!-- Nombre Completo -->
                             <col style="width: 14%;"> <!-- Ficha Académica -->
-                            <col style="width: 11%;"> <!-- Estado DF-14 -->
+                            <col style="width: 10%;"> <!-- Estado DF-14 -->
                             <col style="width: 5%;">  <!-- FIC -->
                             <col style="width: 6%;">  <!-- CTO -->
                             <col style="width: 6%;">  <!-- V.LAB -->
                             <col style="width: 7%;">  <!-- E.PROD -->
                             <col style="width: 11%;"> <!-- Estado Final -->
-                            <?php if(!$es_visualizador): ?><col style="width: 4%;"><?php endif; ?> <!-- Eliminar -->
+                            <?php if(!$es_visualizador): ?><col style="width: 6%;"><?php endif; ?> <!-- Novedad / Eliminar -->
                         </colgroup>
                         <thead class="table-light sticky-top shadow-sm" style="z-index: 10;">
                             <tr>
@@ -551,7 +577,7 @@ if (!$mes_id) {
                                 <th class="text-center text-nowrap px-1 border-bottom" title="¿Tiene Vínculo Laboral?">V.LABORAL</th>
                                 <th class="text-center text-nowrap px-1 text-success border-bottom" title="¿Ya inició Etapa Productiva?">E.PRODUC.</th>
                                 <th class="px-2 border-bottom">Estado Final</th>
-                                <?php if(!$es_visualizador): ?><th class="text-center px-1 border-bottom"><i class="bi bi-trash-fill text-danger"></i></th><?php endif; ?>
+                                <?php if(!$es_visualizador): ?><th class="text-center px-1 border-bottom">Acciones</th><?php endif; ?>
                             </tr>
                         </thead>
                         <tbody id="tbodyAprendices">
@@ -569,6 +595,7 @@ if (!$mes_id) {
                                 $estado_calculado = 'Cumple';
                                 $novedad_texto = 'Sin novedad';
                                 $alerta_fechas = '';
+                                $tiene_novedad_manual = !empty($a['motivo_cancelacion']);
 
                                 // Cálculos de Tiempo (30 días calendario)
                                 if (!empty($a['fecha_fin_lectiva'])) {
@@ -600,8 +627,11 @@ if (!$mes_id) {
                                     $ficha_terminada = true;
                                 }
 
-                                // REGLAS EXCLUYENTES AUTOMÁTICAS
-                                if ($a['tiene_fic_global'] == 'SI') {
+                                // REGLAS EXCLUYENTES (LA NOVEDAD MANUAL TIENE PRIORIDAD Y GUARDA EL MOTIVO PERSONALIZADO)
+                                if ($tiene_novedad_manual) {
+                                    $estado_calculado = 'Cancelado';
+                                    $novedad_texto = htmlspecialchars($a['motivo_cancelacion']);
+                                } elseif ($a['tiene_fic_global'] == 'SI') {
                                     $estado_calculado = 'Cancelado';
                                     $novedad_texto = 'Cancelado por FIC Automático';
                                 } elseif ($es_transporte && $a['activo_en_regular'] == 'SI') {
@@ -624,7 +654,7 @@ if (!$mes_id) {
                             <tr id="fila_<?= $a['id'] ?>" 
                                 class="fila-aprendiz <?= $estado_calculado == 'Cancelado' ? 'table-danger bg-opacity-10' : '' ?>"
                                 data-estado="<?= $estado_calculado ?>"
-                                data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'])) ?>">
+                                data-busqueda="<?= strtolower(htmlspecialchars($a['nombre'] . ' ' . $a['documento'] . ' ' . $a['ficha'] . ' ' . ($a['motivo_cancelacion'] ?? ''))) ?>">
 
                                 <td class="text-center fw-bold text-muted px-1 align-middle">
                                     <?= $item++ ?>
@@ -706,19 +736,39 @@ if (!$mes_id) {
                                         <span class="badge bg-danger shadow-sm mb-1 px-2 py-1 rounded-pill" style="font-size: 0.68rem;"><i class="bi bi-x-circle-fill me-1"></i> CANCELADO</span>
                                     <?php endif; ?>
                                     
-                                    <div class="fw-bold <?= $estado_calculado == 'Cancelado' ? 'text-danger' : 'text-success' ?>" style="line-height: 1.1; font-size: 0.72rem;">
+                                    <div class="fw-bold text-break <?= $estado_calculado == 'Cancelado' ? 'text-danger' : 'text-success' ?>" style="line-height: 1.15; font-size: 0.72rem;">
+                                        <?php if ($tiene_novedad_manual): ?>
+                                            <i class="bi bi-chat-square-text-fill me-1"></i>
+                                        <?php endif; ?>
                                         <?= $novedad_texto ?>
                                     </div>
                                 </td>
 
                                 <?php if(!$es_visualizador): ?>
                                 <td class="text-center px-1 align-middle">
-                                    <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar a <?= addslashes($a['nombre']) ?>? Esto liberará su cupo en este mes.');">
-                                        <input type="hidden" name="id_eliminar" value="<?= $a['id'] ?>">
-                                        <button type="submit" name="eliminar_aprendiz" class="btn btn-sm btn-light border text-danger rounded-circle shadow-sm" style="width: 26px; height: 26px; padding: 0; font-size: 0.75rem;" title="Eliminar y liberar cupo">
-                                            <i class="bi bi-trash3-fill"></i>
+                                    <div class="d-flex justify-content-center align-items-center gap-1">
+                                        <!-- Botón Novedad para Cancelar -->
+                                        <button type="button"
+                                                class="btn btn-sm <?= $tiene_novedad_manual ? 'btn-warning text-dark border-warning' : 'btn-light border text-warning' ?> rounded-circle shadow-sm btn-novedad-cancelar"
+                                                style="width: 26px; height: 26px; padding: 0; font-size: 0.75rem;"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#modalNovedadCancelar"
+                                                data-id="<?= $a['id'] ?>"
+                                                data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                                                data-documento="<?= htmlspecialchars($a['documento']) ?>"
+                                                data-motivo="<?= htmlspecialchars($a['motivo_cancelacion'] ?? '') ?>"
+                                                title="<?= $tiene_novedad_manual ? 'Editar o quitar novedad de cancelación' : 'Registrar novedad para cancelar' ?>">
+                                            <i class="bi bi-slash-circle-fill"></i>
                                         </button>
-                                    </form>
+
+                                        <!-- Botón Eliminar de Planilla -->
+                                        <form method="POST" class="m-0" onsubmit="return confirm('¿Estás seguro de eliminar a <?= addslashes($a['nombre']) ?>? Esto liberará su cupo en este mes.');">
+                                            <input type="hidden" name="id_eliminar" value="<?= $a['id'] ?>">
+                                            <button type="submit" name="eliminar_aprendiz" class="btn btn-sm btn-light border text-danger rounded-circle shadow-sm" style="width: 26px; height: 26px; padding: 0; font-size: 0.75rem;" title="Eliminar y liberar cupo">
+                                                <i class="bi bi-trash3-fill"></i>
+                                            </button>
+                                        </form>
+                                    </div>
                                 </td>
                                 <?php endif; ?>
 
@@ -735,6 +785,62 @@ if (!$mes_id) {
                 </div>
             </div>
         </div>
+
+        <?php if (!$es_visualizador): ?>
+        <!-- MODAL: NOVEDAD PARA CANCELAR APRENDIZ -->
+        <div class="modal fade" id="modalNovedadCancelar" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow">
+                    <div class="modal-header bg-danger text-white py-2">
+                        <h6 class="modal-title fw-bold mb-0">
+                            <i class="bi bi-slash-circle-fill me-2"></i> Novedad de Cancelación
+                        </h6>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <form method="POST">
+                        <div class="modal-body p-3">
+                            <input type="hidden" name="aprendiz_id" id="nov_aprendiz_id">
+                            <div class="alert alert-light border py-2 px-3 mb-3">
+                                <div class="small text-muted">Aprendiz seleccionado:</div>
+                                <div class="fw-bold text-dark" id="nov_aprendiz_nombre"></div>
+                                <div class="small text-secondary fw-semibold">Documento: <span id="nov_aprendiz_doc"></span></div>
+                            </div>
+
+                            <div class="mb-2">
+                                <label class="form-label fw-bold small text-secondary mb-1">Motivo rápido (Opcional)</label>
+                                <select id="nov_motivo_rapido" class="form-select form-select-sm bg-light">
+                                    <option value="">-- Seleccionar causal frecuente o escribir abajo --</option>
+                                    <option value="Deserción / Retiro voluntario">Deserción / Retiro voluntario</option>
+                                    <option value="Inasistencia injustificada">Inasistencia injustificada</option>
+                                    <option value="Incumplimiento de compromisos del apoyo">Incumplimiento de compromisos del apoyo</option>
+                                    <option value="Traslado de centro o cambio de jornada">Traslado de centro o cambio de jornada</option>
+                                    <option value="Cancelación de matrícula en SOFIA Plus">Cancelación de matrícula en SOFIA Plus</option>
+                                    <option value="Sanción disciplinaria / Condicionamiento">Sanción disciplinaria / Condicionamiento</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-1">
+                                <label class="form-label fw-bold small text-danger mb-1">Motivo de cancelación *</label>
+                                <textarea name="motivo_cancelacion" id="nov_motivo_texto" class="form-control form-control-sm border-danger" rows="3" maxlength="255" placeholder="Escribe aquí el motivo exacto por el cual se cancela el apoyo..." required></textarea>
+                                <div class="form-text" style="font-size: 0.72rem;">Este motivo quedará visible en la columna Estado Final de la planilla.</div>
+                            </div>
+                        </div>
+                        <div class="modal-footer py-2 bg-light d-flex justify-content-between">
+                            <button type="submit" name="quitar_novedad_cancelar" id="btnQuitarNovedad" class="btn btn-sm btn-outline-success fw-bold d-none" formnovalidate>
+                                <i class="bi bi-arrow-counterclockwise me-1"></i> Quitar Novedad
+                            </button>
+                            <div class="ms-auto d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                                <button type="submit" name="guardar_novedad_cancelar" class="btn btn-sm btn-danger fw-bold px-3">
+                                    <i class="bi bi-check-lg me-1"></i> Guardar Cancelación
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <?php if (!$es_visualizador && count($aprendices) > 0): ?>
         <!-- MODAL: EDITAR INFORMACIÓN DE APRENDICES DEL MES -->
@@ -897,6 +1003,44 @@ if (!$mes_id) {
             filtrarTabla();
             inputTexto.focus();
         });
+
+        // Lógica del Modal de Novedad para Cancelar
+        const botonesNovedad = document.querySelectorAll('.btn-novedad-cancelar');
+        const selectMotivoRapido = document.getElementById('nov_motivo_rapido');
+        const textareaMotivo = document.getElementById('nov_motivo_texto');
+        const btnQuitarNovedad = document.getElementById('btnQuitarNovedad');
+
+        botonesNovedad.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const id = this.dataset.id;
+                const nombre = this.dataset.nombre || '';
+                const doc = this.dataset.documento || '';
+                const motivoActual = this.dataset.motivo || '';
+
+                document.getElementById('nov_aprendiz_id').value = id;
+                document.getElementById('nov_aprendiz_nombre').textContent = nombre;
+                document.getElementById('nov_aprendiz_doc').textContent = doc;
+                if (selectMotivoRapido) selectMotivoRapido.value = '';
+                if (textareaMotivo) textareaMotivo.value = motivoActual;
+
+                if (btnQuitarNovedad) {
+                    if (motivoActual.trim() !== '') {
+                        btnQuitarNovedad.classList.remove('d-none');
+                    } else {
+                        btnQuitarNovedad.classList.add('d-none');
+                    }
+                }
+            });
+        });
+
+        if (selectMotivoRapido && textareaMotivo) {
+            selectMotivoRapido.addEventListener('change', function () {
+                if (this.value !== '') {
+                    textareaMotivo.value = this.value;
+                    textareaMotivo.focus();
+                }
+            });
+        }
 
         // Lógica del Modal de Edición de Aprendices del Mes
         const botonesEditarAp = document.querySelectorAll('.btn-seleccionar-ap-edit');

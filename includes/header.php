@@ -145,8 +145,8 @@ if (isset($pdo)) {
                 </div>
             </div>
 
-            <a href="//modules/fichas/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fichas/') !== false ? 'active' : '' ?>">
-                <i class="bi bi-diaseguimiento_regulargram-3-fill me-2 text-success"></i> Distribución Fichas
+            <a href="/seguimiento_regular/modules/fichas/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/fichas/') !== false ? 'active' : '' ?>">
+                <i class="bi bi-diagram-3-fill me-2 text-success"></i> Distribución Fichas
             </a>
 
             <a href="/seguimiento_regular/modules/df14/index.php" class="sidebar-link <?= strpos($uri_actual, '/modules/df14/') !== false ? 'active' : '' ?>">

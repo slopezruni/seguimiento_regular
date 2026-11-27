@@ -463,7 +463,7 @@ if (!$mes_id) {
         <!-- CABECERA PLANILLA GOVTECH -->
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
             <div>
-                <div class="d-inline-flex align-items-center gap-1 bg-success bg-opacity-10 border border-success border-opacity-25 text-success rounded-pill px-2 py-0 mb-1 fw-bold" style="font-size: 0.72rem;">
+                <div class="d-inline-flex align-items-center gap-1 bg-success bg-opacity-10 border border-success border-opacity-25 text-white rounded-pill px-2 py-0 mb-1 fw-bold" style="font-size: 0.72rem;">
                     <i class="bi bi-shield-check"></i> Planilla de Ejecución Oficial
                 </div>
                 <h4 class="fw-extrabold text-dark mb-0 titulo-modulo">Periodo: <?= htmlspecialchars($datos_mes['mes']) ?></h4>
